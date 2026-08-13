@@ -94,9 +94,9 @@ conn.commit()
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) // T) + 1
+        s = ((current_p - 1) % T) + 1
     else:
-        s = T - ((current_p - 1) // T)
+        s = T - ((current_p - 1) % T)
     
     next_R = R + 1
     if next_R % 2 != 0:
@@ -105,7 +105,6 @@ def get_next_snake_pick(current_p, T):
         next_p = next_R * T - s + 1
     return next_p
 
-# פונקציית עזר לביצוע בחירת שחקן למסד הנתונים
 def draft_player_to_db(player_name, team_name):
     pick_to_save = st.session_state.my_current_pick
     cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (team_name, int(pick_to_save), player_name))
@@ -180,30 +179,37 @@ LeagueDeviations AS (
 ZScores AS (
     SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
            ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
-           ROUND(pi.PTS, 1) as PTS, ROUND(pi.REB, 1) as REB, ROUND(pi.AST, 1) as AST, ROUND(pi.STL, 1) as STL, ROUND(pi.BLK, 1) as BLK, ROUND(pi.Three_PM, 1) as Three_PM, ROUND(pi.TOV, 1) as TOV
+           ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS,
+           ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB,
+           ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST,
+           ROUND(((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0)), 2) as zSTL,
+           ROUND(((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0)), 2) as zBLK,
+           ROUND(((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0)), 2) as z3PM,
+           ROUND((((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1), 2) as zTOV,
+           ROUND(((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0)), 2) as zFG,
+           ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0)), 2) as zFT
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
 SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
        ROUND(ADP - {st.session_state.my_current_pick}, 0) as Reach_Score,
-       PTS, REB, AST, STL, BLK, Three_PM, TOV
+       zPTS, zREB, zAST, zSTL, zBLK, z3PM, zTOV, zFG, zFT
 FROM ZScores
 ORDER BY Total_Value DESC
-LIMIT 50;
+LIMIT 100;
 '''
 
 df_board = pd.read_sql(query, conn)
 
-# --- בחירה בין 2 סוגי טבלאות בדיוק כמו שביקשת ---
 tab1, tab2 = st.tabs(["🔥 המלצות דראפט (Top Recommendations)", "📋 טבלת דירוג מלאה (Z-Score Rankings)"])
 
 with tab1:
-    st.subheader("המלצות דראפט חמות (לחץ כפתור לבחירה מהירה)")
+    st.markdown("### המלצות דראפט חמות (לחץ כפתור לבחירה מהירה)")
     for index, row in df_board.head(15).iterrows():
-        c1, c2, c3, c4, c5, c6, c7 = st.columns([2, 1, 1, 1, 1, 1, 1])
-        c1.write(f"**{row['Player']}** ({row['Team']} - {row['Position']})")
-        c2.write(f"ADP: {int(row['ADP'])}")
-        c3.write(f"Value: {row['Total_Value']}")
-        c4.write(f"Reach: {int(row['Reach_Score'])}")
+        c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 1, 1, 1, 1])
+        c1.markdown(f"**{row['Player']}** ({row['Team']} - {row['Position']})")
+        c2.markdown(f"ADP: {int(row['ADP'])}")
+        c3.markdown(f"Value: {row['Total_Value']}")
+        c4.markdown(f"Reach: {int(row['Reach_Score'])}")
         
         if c5.button("הוסף לסגל", key=f"rec_my_{row['Player_ID']}"):
             draft_player_to_db(row['Player'], "My Team")
@@ -214,7 +220,7 @@ with tab1:
         st.markdown("---")
 
 with tab2:
-    st.subheader("טבלת שחקנים מלאה עם פעולות מהירות")
+    st.markdown("### טבלת שחקנים מלאה עם Z-Scores לפי קטגוריות")
     search_query = st.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
     
     filtered_df = df_board
@@ -223,17 +229,8 @@ with tab2:
                                df_board['Team'].str.contains(search_query, case=False, na=False) | 
                                df_board['Position'].str.contains(search_query, case=False, na=False)]
     
-    for index, row in filtered_df.head(30).iterrows():
-        c1, c2, c3, c4, c5, c6 = st.columns([2, 1, 1, 1, 1, 1])
-        c1.write(f"**{row['Player']}** ({row['Team']} - {row['Position']}) | PTS: {row['PTS']} | REB: {row['REB']} | AST: {row['AST']}")
-        
-        if c4.button("הוסף לסגל", key=f"full_my_{row['Player_ID']}"):
-            draft_player_to_db(row['Player'], "My Team")
-            st.rerun()
-        if c5.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
-            draft_player_to_db(row['Player'], "Opponent")
-            st.rerun()
-        st.markdown("---")
+    # הצגת טבלה מסודרת המכילה את כל הקטגוריות
+    st.dataframe(filtered_df[['Player', 'Team', 'Position', 'ADP', 'Total_Value', 'zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zTOV', 'zFG', 'zFT']], use_container_width=True, height=500)
 
 # --- Team Analysis & Roster ---
 st.subheader("🟢 My Team Roster")
