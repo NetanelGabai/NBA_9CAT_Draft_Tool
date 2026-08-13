@@ -277,46 +277,42 @@ if search_query:
                            df_board['Position'].str.contains(search_query, case=False, na=False)]
 df_sorted = filtered_df.sort_values(by=chosen_sort, ascending=sort_asc)
 
+# סגנון CSS מקטין פונט ומונע שבירת שורות
+st.markdown("""
+    <style>
+    .small-font {
+        font-size: 12px !important;
+        white-space: nowrap !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 with st.container(height=420):
     fh_cols = st.columns([0.4, 1.8, 0.8, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.0])
-    fh_cols[0].markdown("**#**")
-    fh_cols[1].markdown("**שחקן**")
-    fh_cols[2].markdown("**POS**")
-    fh_cols[3].markdown("**ADP**")
-    fh_cols[4].markdown("**PO_Games**")
-    fh_cols[5].markdown("**Z**")
-    fh_cols[6].markdown("**PTS**")
-    fh_cols[7].markdown("**REB**")
-    fh_cols[8].markdown("**AST**")
-    fh_cols[9].markdown("**STL**")
-    fh_cols[10].markdown("**BLK**")
-    fh_cols[11].markdown("**3PM**")
-    fh_cols[12].markdown("**TOV**")
-    fh_cols[13].markdown("**FG**")
-    fh_cols[14].markdown("**FT**")
-    fh_cols[15].markdown("**פעולה**")
+    headers = ["#", "שחקן", "POS", "ADP", "PO_Games", "Z", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TOV", "FG", "FT", "פעולה"]
+    for i, h in enumerate(headers):
+        fh_cols[i].markdown(f"<div class='small-font'><b>{h}</b></div>", unsafe_allow_html=True)
     st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
 
     for idx, row in df_sorted.head(100).reset_index().iterrows():
         r_cols = st.columns([0.4, 1.8, 0.8, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.0])
-        r_cols[0].write(str(idx + 1))
-        r_cols[1].write(f"{row['Player']} ({row['Team']})")
-        r_cols[2].write(str(row['Position']))
-        r_cols[3].write(str(int(row['ADP'])))
-        r_cols[4].write(str(int(row['PO_Games'])))
-        r_cols[5].write(str(row['Total_Value']))
-        r_cols[6].write(str(row['zPTS']))
-        r_cols[7].write(str(row['zREB']))
-        r_cols[8].write(str(row['zAST']))
-        r_cols[9].write(str(row['zSTL']))
-        r_cols[10].write(str(row['zBLK']))
-        r_cols[11].write(str(row['z3PM']))
-        r_cols[12].write(str(row['zTOV']))
-        r_cols[13].write(str(row['zFG']))
-        r_cols[14].write(str(row['zFT']))
+        r_cols[0].markdown(f"<div class='small-font'>{idx + 1}</div>", unsafe_allow_html=True)
+        r_cols[1].markdown(f"<div class='small-font'>{row['Player']} ({row['Team']})</div>", unsafe_allow_html=True)
+        r_cols[2].markdown(f"<div class='small-font'>{row['Position']}</div>", unsafe_allow_html=True)
+        r_cols[3].markdown(f"<div class='small-font'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
+        r_cols[4].markdown(f"<div class='small-font'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
+        r_cols[5].markdown(f"<div class='small-font'>{row['Total_Value']}</div>", unsafe_allow_html=True)
+        r_cols[6].markdown(f"<div class='small-font'>{row['zPTS']}</div>", unsafe_allow_html=True)
+        r_cols[7].markdown(f"<div class='small-font'>{row['zREB']}</div>", unsafe_allow_html=True)
+        r_cols[8].markdown(f"<div class='small-font'>{row['zAST']}</div>", unsafe_allow_html=True)
+        r_cols[9].markdown(f"<div class='small-font'>{row['zSTL']}</div>", unsafe_allow_html=True)
+        r_cols[10].markdown(f"<div class='small-font'>{row['zBLK']}</div>", unsafe_allow_html=True)
+        r_cols[11].markdown(f"<div class='small-font'>{row['z3PM']}</div>", unsafe_allow_html=True)
+        r_cols[12].markdown(f"<div class='small-font'>{row['zTOV']}</div>", unsafe_allow_html=True)
+        r_cols[13].markdown(f"<div class='small-font'>{row['zFG']}</div>", unsafe_allow_html=True)
+        r_cols[14].markdown(f"<div class='small-font'>{row['zFT']}</div>", unsafe_allow_html=True)
         
         with r_cols[15]:
-            # כפתור יחיד "נלקח" שמכניס אוטומטית לקבוצה התורנית (שלי או של היריב לפי סדר הדראפט)
             if st.button("נלקח", key=f"taken_{row['Player_ID']}"):
                 draft_player_to_db(row['Player'], current_picking_team)
                 st.rerun()
