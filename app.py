@@ -5,9 +5,9 @@ import io
 
 st.set_page_config(page_title="Fantasy NBA Draft Tool", layout="wide")
 
-# אתחול מצב הבחירה הבאה ב-Session State
-if 'current_pick' not in st.session_state:
-    st.session_state.current_pick = 1
+# אתחול הבחירה הראשונה של המשתמש ב-Session State
+if 'user_pick' not in st.session_state:
+    st.session_state.user_pick = 1
 
 @st.cache_resource
 def setup_database():
@@ -122,39 +122,40 @@ st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Draft Settings")
 num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=12)
 
-# שדה מספר הבחירה הבאה המקושר ל-Session State
-current_pick = st.sidebar.number_input(
-    "מספר הבחירה הבאה שלך", 
+# שדה בחירה ידני ואוטומטי שמתעדכן בדראפט נחש
+user_pick = st.sidebar.number_input(
+    "מספר הבחירה הבאה שלך בדראפט", 
     min_value=1, 
     max_value=300, 
-    value=st.session_state.current_pick,
-    key="current_pick_input"
+    value=st.session_state.user_pick,
+    key="user_pick_input"
 )
-st.session_state.current_pick = current_pick
+st.session_state.user_pick = user_pick
 
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Live Draft Control")
 available_players_df = pd.read_sql('SELECT Full_Name FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State) ORDER BY Full_Name', conn)
 selected_player = st.sidebar.selectbox("בחר שחקן לתפוס:", available_players_df['Full_Name'])
 
-# יצירת רשימת קבוצות דינמית בהתאם למספר הקבוצות שנבחר (הקבוצה שלי + מספר הקבוצות פחות אחת)
 league_teams = ["My Team"] + [f"Team {i}" for i in range(1, num_teams)]
 draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה?", league_teams)
 
 if st.sidebar.button("בחר שחקן"):
-    next_pick = conn.execute('SELECT COALESCE(MAX(Pick_Number), 0) + 1 FROM Draft_State').fetchone()[0]
-    cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (draft_team, int(next_pick), selected_player))
+    # שימוש במספר הבחירה הנוכחי של המשתמש כמספר הבחירה בדראפט
+    current_selection_pick = st.session_state.user_pick
+    
+    cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (draft_team, int(current_selection_pick), selected_player))
     conn.commit()
     
-    # אם בחרת עבור "My Team", נקפוץ אוטומטית לבחירה הבאה בדראפט נחש
+    # אם הבחירה שייכת לקבוצה שלך, נקפוץ אוטומטית לבחירה הבאה בדראפט נחש
     if draft_team == "My Team":
-        st.session_state.current_pick = get_next_snake_pick(st.session_state.current_pick, num_teams)
+        st.session_state.user_pick = get_next_snake_pick(st.session_state.user_pick, num_teams)
         
     st.rerun()
 
 if st.sidebar.button("אפס דראפט"):
     cursor.execute('DELETE FROM Draft_State')
-    st.session_state.current_pick = 1
+    st.session_state.user_pick = 1
     conn.commit()
     st.rerun()
 
@@ -191,17 +192,28 @@ ZScores AS (
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
 SELECT Player, Team, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
-       ROUND(ADP - ({current_pick} + {num_teams}), 0) as Reach_Score
+       ROUND(ADP - {st.session_state.user_pick}, 0) as Reach_Score
 FROM ZScores
 ORDER BY Total_Value DESC
 LIMIT 100;
 '''
 
 df_board = pd.read_sql(query, conn)
-st.subheader("📊 Live Big Board (עם מדד Reach)")
+st.subheader("📊 Live Big Board (עם מדד Reach מול הבחירה שלך)")
 st.dataframe(df_board, use_container_width=True, height=500)
 
-# --- Team Analysis ---
+# --- Team Analysis & Roster ---
+st.subheader("🟢 My Team Roster")
+my_team_roster = pd.read_sql('''
+    SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB
+    FROM Draft_State ds
+    JOIN Players p ON ds.Player_ID = p.Player_ID
+    JOIN Projections pr ON p.Player_ID = pr.Player_ID
+    WHERE ds.Fantasy_Team = 'My Team'
+    ORDER BY ds.Pick_Number
+''', conn)
+st.dataframe(my_team_roster, use_container_width=True, height=200)
+
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
 l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
