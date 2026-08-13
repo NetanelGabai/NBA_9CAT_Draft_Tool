@@ -111,7 +111,6 @@ def draft_player_to_db(player_name, team_name):
     pick_to_save = st.session_state.global_pick
     cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (team_name, int(pick_to_save), player_name))
     conn.commit()
-    # קידום מונה הבחירות בדיוק ב-1 קדימה לבחירה הבאה בתור
     st.session_state.global_pick += 1
 
 # --- UI Sidebar ---
@@ -266,14 +265,25 @@ if not my_team_roster.empty:
 st.subheader("🟢 My Team Roster")
 st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# --- 4. Team Needs & Fit ---
+# --- 4. Team Needs & Fit (עם תיקון צבע ל-TOV) ---
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
 l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
-if not my_team_roster.empty:
+num_players_my_team = len(my_team_roster)
+
+if num_players_my_team > 0:
     cols = st.columns(7)
-    for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
-        cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * len(my_team_roster)), 1))
+    cats = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']
+    for i, cat in enumerate(cats):
+        val = my_team[cat]
+        diff = val - (l_avg[cat] * num_players_my_team)
+        
+        # עבור TOV: חיובי (יותר איבודים מהממוצע) זה רע -> צבע אדום (inverse=True)
+        # עבור שאר הקטגוריות: חיובי זה טוב -> צבע ירוק
+        is_inverse = (cat == 'TOV')
+        delta_color = "inverse" if is_inverse else "normal"
+        
+        cols[i].metric(cat, round(val, 1), delta=round(diff, 1), delta_color=delta_color)
 else:
     cols = st.columns(7)
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
@@ -302,7 +312,7 @@ for r in range(1, num_rounds + 1):
     grid_data.append(row_dict)
 
 skeleton_df = pd.DataFrame(grid_data)
-drafted_df = pd.read_sql('SELECT ds.Pick_Number, ds.Fantasy_Team, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
+drafted_df = pd.read_sql('SELECT ds.Pick_Number, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
 
 pick_to_player = dict(zip(drafted_df['Pick_Number'], drafted_df['Full_Name']))
 
