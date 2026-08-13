@@ -5,6 +5,10 @@ import io
 
 st.set_page_config(page_title="Fantasy NBA Draft Tool", layout="wide")
 
+# אתחול מצב הבחירה הבאה ב-Session State
+if 'current_pick' not in st.session_state:
+    st.session_state.current_pick = 1
+
 @st.cache_resource
 def setup_database():
     conn = sqlite3.connect(':memory:', check_same_thread=False)
@@ -87,6 +91,21 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS Draft_State (
 )''')
 conn.commit()
 
+# --- פונקציית חישוב דראפט נחש לבחירה הבאה ---
+def get_next_snake_pick(current_p, T):
+    R = ((current_p - 1) // T) + 1
+    if R % 2 != 0:
+        s = ((current_p - 1) % T) + 1
+    else:
+        s = T - ((current_p - 1) % T)
+    
+    next_R = R + 1
+    if next_R % 2 != 0:
+        next_p = (next_R - 1) * T + s
+    else:
+        next_p = next_R * T - s + 1
+    return next_p
+
 # --- UI Sidebar ---
 st.sidebar.header("🎯 Punt Strategy")
 punt_fg = st.sidebar.checkbox("Punt FG%")
@@ -101,25 +120,41 @@ punt_tov = st.sidebar.checkbox("Punt TOV")
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Draft Settings")
-num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=8, max_value=16, value=12)
-current_pick = st.sidebar.number_input("מספר הבחירה הבאה שלך", min_value=1, max_value=300, value=1)
+num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=12)
+
+# שדה מספר הבחירה הבאה המקושר ל-Session State
+current_pick = st.sidebar.number_input(
+    "מספר הבחירה הבאה שלך", 
+    min_value=1, 
+    max_value=300, 
+    value=st.session_state.current_pick,
+    key="current_pick_input"
+)
+st.session_state.current_pick = current_pick
 
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Live Draft Control")
 available_players_df = pd.read_sql('SELECT Full_Name FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State) ORDER BY Full_Name', conn)
 selected_player = st.sidebar.selectbox("בחר שחקן לתפוס:", available_players_df['Full_Name'])
 
-league_teams = ["My Team"] + [f"Team {i}" for i in range(1, 12)]
+# יצירת רשימת קבוצות דינמית בהתאם למספר הקבוצות שנבחר (הקבוצה שלי + מספר הקבוצות פחות אחת)
+league_teams = ["My Team"] + [f"Team {i}" for i in range(1, num_teams)]
 draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה?", league_teams)
 
 if st.sidebar.button("בחר שחקן"):
     next_pick = conn.execute('SELECT COALESCE(MAX(Pick_Number), 0) + 1 FROM Draft_State').fetchone()[0]
     cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (draft_team, int(next_pick), selected_player))
     conn.commit()
+    
+    # אם בחרת עבור "My Team", נקפוץ אוטומטית לבחירה הבאה בדראפט נחש
+    if draft_team == "My Team":
+        st.session_state.current_pick = get_next_snake_pick(st.session_state.current_pick, num_teams)
+        
     st.rerun()
 
 if st.sidebar.button("אפס דראפט"):
     cursor.execute('DELETE FROM Draft_State')
+    st.session_state.current_pick = 1
     conn.commit()
     st.rerun()
 
