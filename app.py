@@ -43,7 +43,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# פונקציית צביעה חכמה ל-Z-Scores (תוקנה: הוסר ההיפוך השגוי ל-TOV)
 def color_z_score(val):
     try:
         v = float(val)
@@ -357,6 +356,7 @@ st.markdown("---")
 dash_left, dash_right = st.columns([5, 6])
 
 with dash_left:
+    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("#### 🧠 הצרכים של הקבוצה שלי (Team Fit)")
     my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
     l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
@@ -378,7 +378,8 @@ with dash_left:
     needs_html += "</div>"
     st.markdown(needs_html, unsafe_allow_html=True)
 
-    st.markdown("<br>#### 🟢 הקבוצה שלי", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("#### 🟢 הקבוצה שלי")
     my_team_roster = pd.read_sql('SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team" ORDER BY ds.Pick_Number', conn)
     if not my_team_roster.empty:
         st.dataframe(my_team_roster, use_container_width=True, hide_index=True)
@@ -396,7 +397,8 @@ with dash_left:
         while unassigned and counts['UTIL'] < 3: counts['UTIL'] += 1; unassigned.pop(0)
         while unassigned: counts['BN'] += 1; unassigned.pop(0)
         
-        st.markdown("##### 📌 סטטוס סלוטים בסגל")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### 📌 סטטוס סלוטים בסגל")
         slots_html = f"""
         <div class="dash-card" style="display: flex; gap: 10px; flex-wrap: wrap;">
             <div style="text-align: center; flex: 1;"><div style="font-size: 11px; color: #a0aec0; font-weight:bold;">PG</div><div style="font-size: 14px; font-weight: bold; color: {'#48bb78' if counts['PG']>=1 else '#e2e8f0'};">{counts['PG']}/1</div></div>
@@ -416,6 +418,7 @@ with dash_left:
 
 
 with dash_right:
+    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("#### ⚔️ יחסי כוחות בליגה (Live H2H)")
     team_totals_query = '''
         SELECT ds.Fantasy_Team as "Team", COUNT(ds.Player_ID) as "Plyrs",
@@ -442,7 +445,8 @@ with dash_right:
     
     st.dataframe(df_h2h, use_container_width=True, hide_index=True)
 
-    st.markdown("<br>#### 📍 מאגר שחקנים מול ביקוש (Heatmap)", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("#### 📍 מאגר שחקנים מול ביקוש (Heatmap)")
     heatmap_query = f'''
         WITH Available AS (SELECT Position FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)),
         TotalAvail AS (SELECT COUNT(*) as cnt FROM Available),
