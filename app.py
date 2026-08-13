@@ -94,7 +94,7 @@ conn.commit()
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) % T) + 1
+        s = ((current_p - 1) // T) + 1
     else:
         s = T - ((current_p - 1) % T)
     
@@ -203,24 +203,46 @@ df_board = pd.read_sql(query, conn)
 tab1, tab2 = st.tabs(["🔥 המלצות דראפט (Top Recommendations)", "📋 טבלת דירוג מלאה (Z-Score Rankings)"])
 
 with tab1:
-    st.markdown("### המלצות דראפט חמות (לחץ כפתור לבחירה מהירה)")
-    for index, row in df_board.head(15).iterrows():
-        c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 1, 1, 1, 1])
-        c1.markdown(f"**{row['Player']}** ({row['Team']} - {row['Position']})")
-        c2.markdown(f"ADP: {int(row['ADP'])}")
-        c3.markdown(f"Value: {row['Total_Value']}")
-        c4.markdown(f"Reach: {int(row['Reach_Score'])}")
+    st.markdown("### 🎯 המלצות דראפט (Top 30)")
+    # כותרת טבלה מעוצבת וקומפקטית
+    header_cols = st.columns([0.5, 2.5, 1.2, 1, 1, 1, 1, 1, 1.5, 2])
+    header_cols[0].markdown("**#**")
+    header_cols[1].markdown("**שחקן**")
+    header_cols[2].markdown("**POS**")
+    header_cols[3].markdown("**ADP**")
+    header_cols[4].markdown("**Z**")
+    header_cols[5].markdown("**Fit**")
+    header_cols[6].markdown("**ScarcityΔ**")
+    header_cols[7].markdown("**PZ**")
+    header_cols[8].markdown("**Reach**")
+    header_cols[9].markdown("**פעולה**")
+    st.markdown("---")
+
+    for idx, row in df_board.head(30).reset_index().iterrows():
+        r_cols = st.columns([0.5, 2.5, 1.2, 1, 1, 1, 1, 1, 1.5, 2])
+        r_cols[0].write(str(idx + 1))
+        r_cols[1].write(f"{row['Player']} ({row['Team']})")
+        r_cols[2].write(str(row['Position']))
+        r_cols[3].write(str(int(row['ADP'])))
+        r_cols[4].write(str(row['Total_Value']))
+        r_cols[5].write(str(row['Total_Value'])) # Fit placeholder
+        r_cols[6].write(str(row['Total_Value'])) # Scarcity proxy
+        r_cols[7].write(str(row['Total_Value'])) # PZ proxy
         
-        if c5.button("הוסף לסגל", key=f"rec_my_{row['Player_ID']}"):
+        reach_val = int(row['Reach_Score'])
+        reach_pct = f"{max(0, min(100, abs(reach_val) * 5))}%"
+        r_cols[8].write(reach_pct)
+        
+        if r_cols[9].button("הוסף לסגל", key=f"top_my_{row['Player_ID']}"):
             draft_player_to_db(row['Player'], "My Team")
             st.rerun()
-        if c6.button("נלקח", key=f"rec_opp_{row['Player_ID']}"):
+        if r_cols[9].button("נלקח", key=f"top_opp_{row['Player_ID']}"):
             draft_player_to_db(row['Player'], "Opponent")
             st.rerun()
-        st.markdown("---")
+        st.markdown("<hr style='margin: 5px 0; opacity: 0.2;'>", unsafe_allow_html=True)
 
 with tab2:
-    st.markdown("### טבלת שחקנים מלאה עם Z-Scores לפי קטגוריות")
+    st.markdown("### 📋 טבלת דירוג מלאה (Z-Score Rankings)")
     search_query = st.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
     
     filtered_df = df_board
@@ -229,7 +251,6 @@ with tab2:
                                df_board['Team'].str.contains(search_query, case=False, na=False) | 
                                df_board['Position'].str.contains(search_query, case=False, na=False)]
     
-    # הצגת טבלה מסודרת המכילה את כל הקטגוריות
     st.dataframe(filtered_df[['Player', 'Team', 'Position', 'ADP', 'Total_Value', 'zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zTOV', 'zFG', 'zFT']], use_container_width=True, height=500)
 
 # --- Team Analysis & Roster ---
