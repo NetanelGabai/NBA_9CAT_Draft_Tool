@@ -94,7 +94,7 @@ conn.commit()
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) // T) + 1
+        s = ((current_p - 1) % T) + 1
     else:
         s = T - ((current_p - 1) % T)
     
@@ -205,46 +205,46 @@ tab1, tab2 = st.tabs(["🔥 המלצות דראפט (Top Recommendations)", "�
 with tab1:
     st.markdown("### 🎯 המלצות דראפט (Top 30)")
     
-    # כותרת טבלה מעוצבת
-    h_cols = st.columns([0.5, 2.2, 1, 0.8, 0.8, 0.8, 0.8, 0.8, 1.2, 2.2])
-    h_cols[0].markdown("**#**")
-    h_cols[1].markdown("**שחקן**")
-    h_cols[2].markdown("**POS**")
-    h_cols[3].markdown("**ADP**")
-    h_cols[4].markdown("**Z**")
-    h_cols[5].markdown("**Fit**")
-    h_cols[6].markdown("**ScarcityΔ**")
-    h_cols[7].markdown("**PZ**")
-    h_cols[8].markdown("**Reach**")
-    h_cols[9].markdown("**פעולה**")
-    st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+    # מעטפת גלילה בגובה קבוע (כ-10 שורות)
+    with st.container(height=420):
+        h_cols = st.columns([0.5, 2.2, 1, 0.8, 0.8, 0.8, 0.8, 0.8, 1.2, 2.2])
+        h_cols[0].markdown("**#**")
+        h_cols[1].markdown("**שחקן**")
+        h_cols[2].markdown("**POS**")
+        h_cols[3].markdown("**ADP**")
+        h_cols[4].markdown("**Z**")
+        h_cols[5].markdown("**Fit**")
+        h_cols[6].markdown("**ScarcityΔ**")
+        h_cols[7].markdown("**PZ**")
+        h_cols[8].markdown("**Reach**")
+        h_cols[9].markdown("**פעולה**")
+        st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
 
-    for idx, row in df_board.head(30).reset_index().iterrows():
-        r_cols = st.columns([0.5, 2.2, 1, 0.8, 0.8, 0.8, 0.8, 0.8, 1.2, 2.2])
-        r_cols[0].write(str(idx + 1))
-        r_cols[1].write(f"{row['Player']} ({row['Team']})")
-        r_cols[2].write(str(row['Position']))
-        r_cols[3].write(str(int(row['ADP'])))
-        r_cols[4].write(str(row['Total_Value']))
-        r_cols[5].write(str(row['Total_Value']))
-        r_cols[6].write(str(row['Total_Value']))
-        r_cols[7].write(str(row['Total_Value']))
-        
-        reach_val = int(row['Reach_Score'])
-        reach_pct = f"{max(0, min(100, abs(reach_val) * 5))}%"
-        r_cols[8].write(reach_pct)
-        
-        # כפתורי פעולה בשורה אחת מסודרת
-        with r_cols[9]:
-            b_col1, b_col2 = st.columns(2)
-            if b_col1.button("הוסף לסגל", key=f"top_my_{row['Player_ID']}"):
-                draft_player_to_db(row['Player'], "My Team")
-                st.rerun()
-            if b_col2.button("נלקח", key=f"top_opp_{row['Player_ID']}"):
-                draft_player_to_db(row['Player'], "Opponent")
-                st.rerun()
-        
-        st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
+        for idx, row in df_board.head(30).reset_index().iterrows():
+            r_cols = st.columns([0.5, 2.2, 1, 0.8, 0.8, 0.8, 0.8, 0.8, 1.2, 2.2])
+            r_cols[0].write(str(idx + 1))
+            r_cols[1].write(f"{row['Player']} ({row['Team']})")
+            r_cols[2].write(str(row['Position']))
+            r_cols[3].write(str(int(row['ADP'])))
+            r_cols[4].write(str(row['Total_Value']))
+            r_cols[5].write(str(row['Total_Value']))
+            r_cols[6].write(str(row['Total_Value']))
+            r_cols[7].write(str(row['Total_Value']))
+            
+            reach_val = int(row['Reach_Score'])
+            reach_pct = f"{max(0, min(100, abs(reach_val) * 5))}%"
+            r_cols[8].write(reach_pct)
+            
+            with r_cols[9]:
+                b_col1, b_col2 = st.columns(2)
+                if b_col1.button("הוסף לסגל", key=f"top_my_{row['Player_ID']}"):
+                    draft_player_to_db(row['Player'], "My Team")
+                    st.rerun()
+                if b_col2.button("נלקח", key=f"top_opp_{row['Player_ID']}"):
+                    draft_player_to_db(row['Player'], "Opponent")
+                    st.rerun()
+            
+            st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
 
 with tab2:
     st.markdown("### 📋 טבלת דירוג מלאה (Z-Score Rankings)")
@@ -256,52 +256,53 @@ with tab2:
                                df_board['Team'].str.contains(search_query, case=False, na=False) | 
                                df_board['Position'].str.contains(search_query, case=False, na=False)]
     
-    # כותרת טבלה מלאה מעוצבת הכוללת Z-Scores לכל הקטגוריות וכפתורי פעולה
-    fh_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
-    fh_cols[0].markdown("**#**")
-    fh_cols[1].markdown("**שחקן**")
-    fh_cols[2].markdown("**POS**")
-    fh_cols[3].markdown("**ADP**")
-    fh_cols[4].markdown("**Z**")
-    fh_cols[5].markdown("**PTS**")
-    fh_cols[6].markdown("**REB**")
-    fh_cols[7].markdown("**AST**")
-    fh_cols[8].markdown("**STL**")
-    fh_cols[9].markdown("**BLK**")
-    fh_cols[10].markdown("**3PM**")
-    fh_cols[11].markdown("**TOV**")
-    fh_cols[12].markdown("**FG**")
-    fh_cols[13].markdown("**FT**")
-    fh_cols[14].markdown("**פעולה**")
-    st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+    # מעטפת גלילה בגובה קבוע גם לטבלה המלאה
+    with st.container(height=420):
+        fh_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
+        fh_cols[0].markdown("**#**")
+        fh_cols[1].markdown("**שחקן**")
+        fh_cols[2].markdown("**POS**")
+        fh_cols[3].markdown("**ADP**")
+        fh_cols[4].markdown("**Z**")
+        fh_cols[5].markdown("**PTS**")
+        fh_cols[6].markdown("**REB**")
+        fh_cols[7].markdown("**AST**")
+        fh_cols[8].markdown("**STL**")
+        fh_cols[9].markdown("**BLK**")
+        fh_cols[10].markdown("**3PM**")
+        fh_cols[11].markdown("**TOV**")
+        fh_cols[12].markdown("**FG**")
+        fh_cols[13].markdown("**FT**")
+        fh_cols[14].markdown("**פעולה**")
+        st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
 
-    for idx, row in filtered_df.head(50).reset_index().iterrows():
-        r_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
-        r_cols[0].write(str(idx + 1))
-        r_cols[1].write(f"{row['Player']} ({row['Team']})")
-        r_cols[2].write(str(row['Position']))
-        r_cols[3].write(str(int(row['ADP'])))
-        r_cols[4].write(str(row['Total_Value']))
-        r_cols[5].write(str(row['zPTS']))
-        r_cols[6].write(str(row['zREB']))
-        r_cols[7].write(str(row['zAST']))
-        r_cols[8].write(str(row['zSTL']))
-        r_cols[9].write(str(row['zBLK']))
-        r_cols[10].write(str(row['z3PM']))
-        r_cols[11].write(str(row['zTOV']))
-        r_cols[12].write(str(row['zFG']))
-        r_cols[13].write(str(row['zFT']))
-        
-        with r_cols[14]:
-            b_col1, b_col2 = st.columns(2)
-            if b_col1.button("הוסף", key=f"full_my_{row['Player_ID']}"):
-                draft_player_to_db(row['Player'], "My Team")
-                st.rerun()
-            if b_col2.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
-                draft_player_to_db(row['Player'], "Opponent")
-                st.rerun()
-                
-        st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
+        for idx, row in filtered_df.head(50).reset_index().iterrows():
+            r_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
+            r_cols[0].write(str(idx + 1))
+            r_cols[1].write(f"{row['Player']} ({row['Team']})")
+            r_cols[2].write(str(row['Position']))
+            r_cols[3].write(str(int(row['ADP'])))
+            r_cols[4].write(str(row['Total_Value']))
+            r_cols[5].write(str(row['zPTS']))
+            r_cols[6].write(str(row['zREB']))
+            r_cols[7].write(str(row['zAST']))
+            r_cols[8].write(str(row['zSTL']))
+            r_cols[9].write(str(row['zBLK']))
+            r_cols[10].write(str(row['z3PM']))
+            r_cols[11].write(str(row['zTOV']))
+            r_cols[12].write(str(row['zFG']))
+            r_cols[13].write(str(row['zFT']))
+            
+            with r_cols[14]:
+                b_col1, b_col2 = st.columns(2)
+                if b_col1.button("הוסף", key=f"full_my_{row['Player_ID']}"):
+                    draft_player_to_db(row['Player'], "My Team")
+                    st.rerun()
+                if b_col2.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
+                    draft_player_to_db(row['Player'], "Opponent")
+                    st.rerun()
+                    
+            st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
 
 # --- Team Analysis & Roster ---
 st.subheader("🟢 My Team Roster")
