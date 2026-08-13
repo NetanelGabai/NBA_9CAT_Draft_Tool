@@ -212,7 +212,7 @@ LeagueDeviations AS (
 ),
 ZScores AS (
     SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
-           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0))*{w['ft']} as Total_Value,
+           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS,
            ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB,
            ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST,
@@ -242,8 +242,8 @@ num_my_players = len(my_team_roster_check)
 if num_my_players > 0:
     l_avg_check = pd.read_sql('SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections', conn).iloc[0]
     
-    cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV', 'FG': 'zFG', 'FT': 'zFT'}
-    cat_to_w_key = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'Three_PM': '3pm', 'TOV': 'tov', 'FG': 'fg', 'FT': 'ft'}
+    cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV'}
+    cat_to_w_key = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'Three_PM': '3pm', 'TOV': 'tov'}
     
     needs_boost = []
     for cat, w_key in cat_to_w_key.items():
@@ -277,38 +277,40 @@ if search_query:
                            df_board['Position'].str.contains(search_query, case=False, na=False)]
 df_sorted = filtered_df.sort_values(by=chosen_sort, ascending=sort_asc)
 
-# סגנון CSS מקטין פונט, מונע שבירת שורות ומקטין את כפתורי הפעולה
+# סגנון CSS מקטין פונט, מונע שבירת שורות ומקטין את כפתור הפעולה
 st.markdown("""
     <style>
     .small-font {
         font-size: 12px !important;
         white-space: nowrap !important;
     }
+    /* הקטנת כפתורי פעולה בטבלה */
     div.stButton > button {
-        padding: 2px 8px !important;
-        font-size: 11px !important;
-        min-height: 24px !important;
-        height: 28px !important;
+        padding: 0px 10px !important;
+        font-size: 12px !important;
+        min-height: 26px !important;
+        height: 26px !important;
         line-height: 1 !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
 with st.container(height=420):
-    fh_cols = st.columns([0.4, 1.8, 0.8, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.0])
+    # שים לב לסדר העמודות והיחסים ביניהן (האחרון קטן יותר בשביל הכפתור הבודד)
+    fh_cols = st.columns([0.4, 1.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8])
     headers = ["#", "שחקן", "POS", "ADP", "PO_Games", "Z", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TOV", "FG", "FT", "פעולה"]
     for i, h in enumerate(headers):
         fh_cols[i].markdown(f"<div class='small-font'><b>{h}</b></div>", unsafe_allow_html=True)
     st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
 
     for idx, row in df_sorted.head(100).reset_index().iterrows():
-        r_cols = st.columns([0.4, 1.8, 0.8, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.0])
+        r_cols = st.columns([0.4, 1.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8])
         r_cols[0].markdown(f"<div class='small-font'>{idx + 1}</div>", unsafe_allow_html=True)
         r_cols[1].markdown(f"<div class='small-font'>{row['Player']} ({row['Team']})</div>", unsafe_allow_html=True)
         r_cols[2].markdown(f"<div class='small-font'>{row['Position']}</div>", unsafe_allow_html=True)
         r_cols[3].markdown(f"<div class='small-font'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
         r_cols[4].markdown(f"<div class='small-font'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
-        r_cols[5].markdown(f"<div class='small-font'>{row['Total_Value']}</div>", unsafe_allow_html=True)
+        r_cols[5].markdown(f"<div class='small-font'><b>{row['Total_Value']:.2f}</b></div>", unsafe_allow_html=True)
         r_cols[6].markdown(f"<div class='small-font'>{row['zPTS']}</div>", unsafe_allow_html=True)
         r_cols[7].markdown(f"<div class='small-font'>{row['zREB']}</div>", unsafe_allow_html=True)
         r_cols[8].markdown(f"<div class='small-font'>{row['zAST']}</div>", unsafe_allow_html=True)
@@ -347,7 +349,7 @@ if not my_team_roster.empty:
 
 # --- 3. רוסטר הקבוצה שלך ---
 st.subheader("🟢 My Team Roster")
-st.dataframe(my_team_roster, use_container_width=True, height=200)
+st.dataframe(my_team_roster, use_container_width=True, height=200, hide_index=True)
 
 # --- 4. Team Needs & Fit ---
 st.subheader("🧠 Team Needs & Fit")
