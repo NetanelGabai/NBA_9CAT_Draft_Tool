@@ -117,8 +117,8 @@ def draft_player_to_db(player_name, team_name):
     pick_to_save = st.session_state.my_current_pick
     cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (team_name, int(pick_to_save), player_name))
     conn.commit()
-    if team_name == "My Team":
-        st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
+    # התקדמות אוטומטית של מונה הבחירות לכל בחירה (גם לקבוצה וגם ליריבים)
+    st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
 
 # --- UI Sidebar ---
 st.sidebar.header("🎯 Punt Strategy")
@@ -136,7 +136,6 @@ st.sidebar.markdown("---")
 st.sidebar.header("⚙️ הגדרות דראפט (Snake)")
 num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=12)
 
-# בחירת מספר הבחירה האישית שלך בהתחלה
 chosen_pos = st.sidebar.number_input("הבחירה שלך בסבב (Draft Position)", min_value=1, max_value=int(num_teams), value=st.session_state.get('my_draft_position', 1))
 if chosen_pos != st.session_state.my_draft_position:
     st.session_state.my_draft_position = chosen_pos
@@ -266,7 +265,7 @@ if not my_team_roster.empty:
 st.subheader("🟢 My Team Roster")
 st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# --- 4. Team Needs & Fit (הועבר מעל הגריד) ---
+# --- 4. Team Needs & Fit ---
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
 l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
@@ -279,10 +278,9 @@ else:
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
         cols[i].metric(cat, 0.0, delta=0.0)
 
-# --- 5. Draft Grid (לוח דראפט ליגה מלא מותאם לפי בחירתך) ---
+# --- 5. Draft Grid (לוח דראפט ליגה מלא מסודר לפי בחירתך) ---
 st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
 
-# בניית רשימת הקבוצות לפי מיקום הבחירה שלך
 teams_order = []
 for i in range(1, num_teams + 1):
     if i == st.session_state.my_draft_position:
