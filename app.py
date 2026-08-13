@@ -94,9 +94,9 @@ conn.commit()
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) % T) + 1
+        s = ((current_p - 1) // T) + 1
     else:
-        s = T - ((current_p - 1) % T)
+        s = T - ((current_p - 1) // T)
     
     next_R = R + 1
     if next_R % 2 != 0:
@@ -201,7 +201,7 @@ st.subheader("📊 Live Big Board (עם מדד Reach מול הבחירה שלך)
 st.dataframe(df_board, use_container_width=True, height=500)
 
 # --- Team Analysis & Roster ---
-st.subheader("🟢 My Team Roster & Position Slots")
+st.subheader("🟢 My Team Roster")
 my_team_roster = pd.read_sql('''
     SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB
     FROM Draft_State ds
@@ -212,90 +212,68 @@ my_team_roster = pd.read_sql('''
 ''', conn)
 st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# --- מנוע התאמת סלוטים מדויק לפי דרישת המשתמש ---
+# --- מעקב סלוטים נדרשים בסגנון קומפקטי (דורש/נבחר) ---
 if not my_team_roster.empty:
-    st.markdown("##### 📌 מעקב סלוטים מדויק בסגל (חובה: 1 מכל עמדה + G/F + Util + BN)")
+    st.markdown("##### 📌 סלוטים נדרשים בסגל")
     
-    # עיבוד השחקנים שהתקבלו
+    # חישוב איוש עמדות בפועל מול דרישה
     player_pool = []
     for idx, row in my_team_roster.iterrows():
         pos_list = [p.strip().upper() for p in str(row['Position']).split(',')]
-        player_pool.append({'name': row['Player'], 'pos': pos_list})
+        player_pool.append(pos_list)
         
     unassigned = player_pool.copy()
-    slot_status = {}
+    counts = {'PG': 0, 'SG': 0, 'SF': 0, 'PF': 0, 'C': 0, 'G': 0, 'F': 0, 'UTIL': 0, 'BN': 0}
     
-    # 1. עמדות חובה סטריקטיות
-    for strict_pos in ['PG', 'SG', 'SF', 'PF', 'C']:
-        found = None
-        for p in unassigned:
-            if strict_pos in p['pos']:
-                found = p
+    # חלוקה חכמה לסלוטים חובה
+    for s_pos in ['PG', 'SG', 'SF', 'PF', 'C']:
+        found_idx = -1
+        for i, p_pos in enumerate(unassigned):
+            if s_pos in p_pos:
+                found_idx = i
                 break
-        if found:
-            slot_status[strict_pos] = found['name']
-            unassigned.remove(found)
-        else:
-            slot_status[strict_pos] = "⚠️ חסר!"
+        if found_idx != -1:
+            counts[s_pos] += 1
+            unassigned.pop(found_idx)
             
-    # 2. עמדת G (דורשת PG או SG או G)
-    found = None
-    for p in unassigned:
-        if 'PG' in p['pos'] or 'SG' in p['pos'] or 'G' in p['pos']:
-            found = p
+    # G Flex
+    for i, p_pos in enumerate(unassigned):
+        if 'PG' in p_pos or 'SG' in p_pos or 'G' in p_pos:
+            counts['G'] += 1
+            unassigned.pop(i)
             break
-    if found:
-        slot_status['G'] = found['name']
-        unassigned.remove(found)
-    else:
-        slot_status['G'] = "⚠️ חסר!"
-        
-    # 3. עמדת F (דורשת SF או PF או F)
-    found = None
-    for p in unassigned:
-        if 'SF' in p['pos'] or 'PF' in p['pos'] or 'F' in p['pos']:
-            found = p
-            break
-    if found:
-        slot_status['F'] = found['name']
-        unassigned.remove(found)
-    else:
-        slot_status['F'] = "⚠️ חסר!"
-        
-    # 4. עמדות Util (3 סלוטים)
-    utils = []
-    for _ in range(3):
-        if unassigned:
-            utils.append(unassigned.pop(0)['name'])
-        else:
-            utils.append("פנוי")
             
-    # 5. עמדות ספסל BN (3 סלוטים)
-    bns = []
-    for _ in range(3):
-        if unassigned:
-            bns.append(unassigned.pop(0)['name'])
-        else:
-            bns.append("פנוי")
+    # F Flex
+    for i, p_pos in enumerate(unassigned):
+        if 'SF' in p_pos or 'PF' in p_pos or 'F' in p_pos:
+            counts['F'] += 1
+            unassigned.pop(i)
+            break
+            
+    # Util (עד 3)
+    while unassigned and counts['UTIL'] < 3:
+        counts['UTIL'] += 1
+        unassigned.pop(0)
+        
+    # BN (השאר)
+    while unassigned:
+        counts['BN'] += 1
+        unassigned.pop(0)
 
-    # הצגה ויזואלית במסגרות נקיות
-    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-    col1.metric("PG", slot_status['PG'])
-    col2.metric("SG", slot_status['SG'])
-    col3.metric("SF", slot_status['SF'])
-    col4.metric("PF", slot_status['PF'])
-    col5.metric("C", slot_status['C'])
-    col6.metric("G (Flex)", slot_status['G'])
-    col7.metric("F (Flex)", slot_status['F'])
-    
-    u_col1, u_col2, u_col3 = st.columns(3)
-    u_col1.metric("Util 1", utils[0])
-    u_col2.metric("Util 2", utils[1])
-    u_col3.metric("Util 3", utils[2])
+    # הצגה בעיצוב קומפקטי של מספר נבחר / דרישה (למשל 1/1 או 3/0)
+    scol1, scol2, scol3, scol4, scol5, scol6, scol7, scol8 = st.columns(8)
+    scol1.metric("PG", f"1/{counts['PG']}")
+    scol2.metric("SG", f"1/{counts['SG']}")
+    scol3.metric("SF", f"1/{counts['SF']}")
+    scol4.metric("PF", f"1/{counts['PF']}")
+    scol5.metric("C", f"1/{counts['C']}")
+    scol6.metric("G", f"1/{counts['G']}")
+    scol7.metric("F", f"1/{counts['F']}")
+    scol8.metric("UTIL", f"3/{counts['UTIL']}")
 
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
-l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
+l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as AVG_TOV FROM Projections", conn).iloc[0]
 
 num_players = conn.execute("SELECT COUNT(*) FROM Draft_State WHERE Fantasy_Team = 'My Team'").fetchone()[0]
 if num_players > 0:
