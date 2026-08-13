@@ -8,6 +8,11 @@ st.set_page_config(page_title="Fantasy NBA Draft Tool", layout="wide")
 if 'my_current_pick' not in st.session_state:
     st.session_state.my_current_pick = 1
 
+if 'sort_col_main' not in st.session_state:
+    st.session_state.sort_col_main = 'Total_Value'
+if 'sort_asc_main' not in st.session_state:
+    st.session_state.sort_asc_main = False
+
 @st.cache_resource
 def setup_database():
     conn = sqlite3.connect(':memory:', check_same_thread=False)
@@ -94,9 +99,9 @@ conn.commit()
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) // T) + 1
+        s = ((current_p - 1) % T) + 1
     else:
-        s = T - ((current_p - 1) // T)
+        s = T - ((current_p - 1) % T)
     
     next_R = R + 1
     if next_R % 2 != 0:
@@ -261,19 +266,25 @@ if not my_team_roster.empty:
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
         cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * len(my_team_roster)), 1))
 
-# --- 5. Positional Heatmap ---
+# --- 5. Positional Heatmap מתוקן (שורה אחת לכל סלוט כולל BN) ---
 st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
 heatmap_query = f'''
     WITH Available AS (SELECT Position FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)),
+    TotalAvail AS (SELECT COUNT(*) as cnt FROM Available),
     SlotsDefinition AS (
         SELECT 'PG' as slot, {num_teams} as demand UNION ALL SELECT 'SG', {num_teams} UNION ALL SELECT 'G', {num_teams} UNION ALL
         SELECT 'SF', {num_teams} UNION ALL SELECT 'PF', {num_teams} UNION ALL SELECT 'F', {num_teams} UNION ALL
         SELECT 'C', {num_teams} UNION ALL SELECT 'UTIL', {num_teams} * 3 UNION ALL SELECT 'BN', {num_teams} * 3
     )
-    SELECT s.slot as סלוט, s.demand as "ביקוש (חסר)", COALESCE(avail.cnt, 0) as "היצע (כשירים כעת)",
-           ROUND(COALESCE(avail.cnt, 0) * 1.0 / NULLIF(s.demand, 1), 2) as "יחס נדירות"
+    SELECT 
+        s.slot as סלוט, 
+        s.demand as "ביקוש (חסר)", 
+        CASE WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail)
+             ELSE COALESCE(avail.cnt, 0) END as "היצע (כשירים כעת)",
+        ROUND(CASE WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail)
+                   ELSE COALESCE(avail.cnt, 0) END * 1.0 / NULLIF(s.demand, 1), 2) as "יחס נדירות"
     FROM SlotsDefinition s
     LEFT JOIN (SELECT Position, COUNT(*) as cnt FROM Available GROUP BY Position) avail 
-    ON (s.slot != 'BN' AND avail.Position LIKE '%' || s.slot || '%') OR (s.slot = 'BN' AND 1=1)
+    ON s.slot NOT IN ('UTIL', 'BN') AND avail.Position LIKE '%' || s.slot || '%'
 '''
 st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, height=350)
