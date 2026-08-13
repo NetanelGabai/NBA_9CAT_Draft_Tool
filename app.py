@@ -5,7 +5,6 @@ import io
 
 st.set_page_config(page_title="Fantasy NBA Draft Tool", layout="wide")
 
-# אתחול מונה הבחירות ב-Session State בצורה בטוחה לחלוטין
 if 'my_current_pick' not in st.session_state:
     st.session_state.my_current_pick = 1
 
@@ -67,6 +66,7 @@ def setup_database():
     df_renamed = df_clean.rename(columns=column_mapping).fillna(0)
     df_renamed['Full_Name'] = df_renamed['Full_Name'].astype(str)
     df_renamed['Rank'] = pd.to_numeric(df_renamed['Rank'], errors='coerce').fillna(999)
+    df_renamed['Position'] = df_renamed['Position'].astype(str)
     
     for index, row in df_renamed.iterrows():
         cursor.execute('INSERT OR IGNORE INTO Players (Full_Name, Team, Position, Injury_Status) VALUES (?, ?, ?, ?)', 
@@ -91,7 +91,6 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS Draft_State (
 )''')
 conn.commit()
 
-# --- פונקציית חישוב דראפט נחש לבחירה הבאה ---
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
@@ -122,7 +121,6 @@ st.sidebar.markdown("---")
 st.sidebar.header("⚙️ הגדרות דראפט (Snake)")
 num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=8)
 
-# תצוגה ושליטה בבחירה הנוכחית שלך בדיוק כמו בכלי הישן שלך
 st.sidebar.markdown(f"**הבחירה שלך בתור:** `{st.session_state.my_current_pick}`")
 
 col_b1, col_b2, col_b3 = st.sidebar.columns(3)
@@ -147,14 +145,10 @@ draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה
 
 if st.sidebar.button("בחר שחקן"):
     pick_to_save = st.session_state.my_current_pick
-    
     cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (draft_team, int(pick_to_save), selected_player))
     conn.commit()
-    
-    # אם בחרת לקבוצה שלך, הקפץ אוטומטית לבחירה הבאה בדראפט נחש
     if draft_team == "My Team":
         st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
-        
     st.rerun()
 
 if st.sidebar.button("אפס דראפט מלא"):
@@ -170,7 +164,7 @@ w = {k: (0 if v else 1) for k, v in zip(['pts','reb','ast','stl','blk','3pm','to
 
 query = f'''
 WITH PlayerPool AS (
-    SELECT p.Player_ID, p.Full_Name, p.Team, pr.* 
+    SELECT p.Player_ID, p.Full_Name, p.Team, p.Position, pr.* 
     FROM Players p JOIN Projections pr ON p.Player_ID = pr.Player_ID 
     WHERE pr.MIN > 15 AND pr.Games_Played > 10 AND p.Player_ID NOT IN (SELECT Player_ID FROM Draft_State)
 ),
@@ -191,11 +185,11 @@ LeagueDeviations AS (
     FROM LeagueImpactStats CROSS JOIN LeagueAvg la
 ),
 ZScores AS (
-    SELECT pi.Full_Name as Player, pi.Team, pi.Rank as ADP,
+    SELECT pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
            ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
-SELECT Player, Team, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
+SELECT Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
        ROUND(ADP - {st.session_state.my_current_pick}, 0) as Reach_Score
 FROM ZScores
 ORDER BY Total_Value DESC
@@ -207,7 +201,7 @@ st.subheader("📊 Live Big Board (עם מדד Reach מול הבחירה שלך)
 st.dataframe(df_board, use_container_width=True, height=500)
 
 # --- Team Analysis & Roster ---
-st.subheader("🟢 My Team Roster")
+st.subheader("🟢 My Team Roster & Position Slots")
 my_team_roster = pd.read_sql('''
     SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB
     FROM Draft_State ds
@@ -217,6 +211,18 @@ my_team_roster = pd.read_sql('''
     ORDER BY ds.Pick_Number
 ''', conn)
 st.dataframe(my_team_roster, use_container_width=True, height=200)
+
+# הצגת ניהול עמדות (סלוטים נדרשים מול מה שנבחר)
+if not my_team_roster.empty:
+    st.markdown("##### 📌 מעקב סלוטים בסגל (מתוך מבנה 13 שחקנים: PG, SG, G, SF, PF, F, C, 3xUtil, 3xBN)")
+    pos_counts = my_team_roster['Position'].value_codes if 'Position' in my_team_roster else {}
+    # הצגת סיכום עמדות מהיר בסגל
+    slot_col1, slot_col2, slot_col3, slot_col4, slot_col5 = st.columns(5)
+    slot_col1.metric("סה"כ שחקנים", len(my_team_roster), "מתוך 13")
+    slot_col2.metric("Guard (PG/SG/G)", len(my_team_roster[my_team_roster['Position'].str.contains('PG|SG|G', case=False, na=False)]))
+    slot_col3.metric("Forward (SF/PF/F)", len(my_team_roster[my_team_roster['Position'].str.contains('SF|PF|F', case=False, na=False)]))
+    slot_col4.metric("Center (C)", len(my_team_roster[my_team_roster['Position'].str.contains('C', case=False, na=False)]))
+    slot_col5.metric("Util / Bench", max(0, len(my_team_roster) - 10))
 
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
