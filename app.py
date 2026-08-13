@@ -115,7 +115,7 @@ def draft_player_to_db(player_name, team_name, player_id):
         st.session_state.watchlist.remove(player_id)
     st.session_state.global_pick += 1
 
-# --- UI Sidebar (מעוצב ומופרד) ---
+# --- UI Sidebar ---
 st.sidebar.markdown("<h2 style='text-align: center; color: #cbd5e0;'>⚙️ דראפט ופאנטים</h2>", unsafe_allow_html=True)
 
 st.sidebar.markdown("#### מסלול הדראפט")
@@ -134,6 +134,19 @@ col_b1, col_b2, col_b3 = st.sidebar.columns(3)
 if col_b1.button("⏪ -1", help="אחורה") and st.session_state.global_pick > 1: st.session_state.global_pick -= 1; st.rerun()
 if col_b2.button("⏭️ +1", help="קדימה"): st.session_state.global_pick += 1; st.rerun()
 if col_b3.button("🔄 איפוס", help="איפוס מלא"): cursor.execute('DELETE FROM Draft_State'); st.session_state.global_pick = 1; st.session_state.watchlist = []; conn.commit(); st.rerun()
+
+# כפתור ה-Undo החדש
+if st.sidebar.button("↩️ ביטול בחירה אחרונה (Undo)", use_container_width=True):
+    cursor.execute('SELECT MAX(Draft_ID) FROM Draft_State')
+    last_id = cursor.fetchone()[0]
+    if last_id is not None:
+        cursor.execute('DELETE FROM Draft_State WHERE Draft_ID = ?', (last_id,))
+        conn.commit()
+        if st.session_state.global_pick > 1:
+            st.session_state.global_pick -= 1
+        st.rerun()
+    else:
+        st.sidebar.warning("אין בחירות לבטל.")
 
 st.sidebar.divider()
 
@@ -254,7 +267,6 @@ df_board['Total_Value'] = (df_board['Total_Value'] + ((df_board['PO_Games'] - 11
 col_widths = [0.4, 2.0, 0.6, 0.5, 0.6, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.2]
 headers_map = [("#", None), ("שחקן", "Player"), ("POS", "Position"), ("ADP", "ADP"), ("סטטוס", "Survive"), ("PO", "PO_Games"), ("Z", "Total_Value"), ("PTS", "zPTS"), ("REB", "zREB"), ("AST", "zAST"), ("STL", "zSTL"), ("BLK", "zBLK"), ("3PM", "z3PM"), ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)]
 
-
 # --- WATCHLIST SECTION ---
 st.markdown("### ⭐ רשימת מעקב (Targets)")
 wl_df = df_board[df_board['Player_ID'].isin(st.session_state.watchlist)].sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
@@ -297,7 +309,6 @@ if not wl_df.empty:
             st.markdown("<hr style='margin: 4px 0; border-color: rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
 else:
     st.markdown("<div style='background-color: #1a202c; padding: 10px; border-radius: 6px; border: 1px dashed #2d3748; color: #718096; text-align: center; font-size: 13px;'>הרשימה ריקה. הוסף שחקנים מהטבלה למטה בעזרת כפתור ה-⭐ כדי לעקוב אחריהם בקלות.</div>", unsafe_allow_html=True)
-
 
 # --- MAIN TABLE ---
 st.markdown("---")
@@ -356,7 +367,6 @@ st.markdown("---")
 dash_left, dash_right = st.columns([5, 6])
 
 with dash_left:
-    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("#### 🧠 הצרכים של הקבוצה שלי (Team Fit)")
     my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
     l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
@@ -418,7 +428,6 @@ with dash_left:
 
 
 with dash_right:
-    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("#### ⚔️ יחסי כוחות בליגה (Live H2H)")
     team_totals_query = '''
         SELECT ds.Fantasy_Team as "Team", COUNT(ds.Player_ID) as "Plyrs",
@@ -429,7 +438,6 @@ with dash_right:
     '''
     df_teams_actual = pd.read_sql(team_totals_query, conn)
     
-    # הבטחת 12 שורות קבועות תמיד (לפי מס' הקבוצות)
     all_teams_list = ["My Team"] + [f"Team {i}" for i in range(1, int(num_teams) + 1) if i != st.session_state.my_draft_position]
     base_teams_df = pd.DataFrame({"Team": all_teams_list})
     
