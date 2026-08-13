@@ -8,15 +8,10 @@ st.set_page_config(page_title="Fantasy NBA Draft Tool", layout="wide")
 if 'my_current_pick' not in st.session_state:
     st.session_state.my_current_pick = 1
 
-if 'sort_col_tab2' not in st.session_state:
-    st.session_state.sort_col_tab2 = 'Total_Value'
-if 'sort_asc_tab2' not in st.session_state:
-    st.session_state.sort_asc_tab2 = False
-
-if 'sort_col_tab1' not in st.session_state:
-    st.session_state.sort_col_tab1 = 'Total_Value'
-if 'sort_asc_tab1' not in st.session_state:
-    st.session_state.sort_asc_tab1 = False
+if 'sort_col_main' not in st.session_state:
+    st.session_state.sort_col_main = 'Total_Value'
+if 'sort_asc_main' not in st.session_state:
+    st.session_state.sort_asc_main = False
 
 @st.cache_resource
 def setup_database():
@@ -104,7 +99,7 @@ conn.commit()
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) // T) + 1
+        s = ((current_p - 1) % T) + 1
     else:
         s = T - ((current_p - 1) % T)
     
@@ -208,124 +203,70 @@ FROM ZScores;
 
 df_board = pd.read_sql(query, conn)
 
-tab1, tab2 = st.tabs(["🔥 המלצות דראפט (Top Recommendations)", "📋 טבלת דירוג מלאה (Z-Score Rankings)"])
+# --- 1. טבלת דירוג מלאה ראשית ---
+st.markdown("### 📋 טבלת דירוג מלאה (Z-Score Rankings)")
 
-with tab1:
-    st.markdown("### 🎯 המלצות דראפט (Top 30)")
-    
-    # פקדי מיון לטאב 1
-    sort_opts_1 = {'Total_Value': 'Value (Z)', 'ADP': 'ADP', 'zPTS': 'PTS', 'zREB': 'REB', 'zAST': 'AST', 'zSTL': 'STL', 'zBLK': 'BLK', 'z3PM': '3PM', 'zTOV': 'TOV', 'zFG': 'FG', 'zFT': 'FT'}
-    s_col1, s_col2 = st.columns([2, 1])
-    chosen_sort_1 = s_col1.selectbox("מיון לפי:", list(sort_opts_1.keys()), format_func=lambda x: sort_opts_1[x], key="sort_t1")
-    sort_asc_1 = s_col2.checkbox("סדר עולה (נמוך לגבוה)", value=False, key="asc_t1")
-    
-    df_sorted_1 = df_board.sort_values(by=chosen_sort_1, ascending=sort_asc_1).head(30)
+f_col1, f_col2, f_col3 = st.columns([2, 1.5, 1])
+search_query = f_col1.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
 
-    with st.container(height=420):
-        h_cols = st.columns([0.5, 2.2, 1, 0.8, 0.8, 0.8, 0.8, 0.8, 1.2, 2.2])
-        h_cols[0].markdown("**#**")
-        h_cols[1].markdown("**שחקן**")
-        h_cols[2].markdown("**POS**")
-        h_cols[3].markdown("**ADP**")
-        h_cols[4].markdown("**Z**")
-        h_cols[5].markdown("**Fit**")
-        h_cols[6].markdown("**ScarcityΔ**")
-        h_cols[7].markdown("**PZ**")
-        h_cols[8].markdown("**Reach**")
-        h_cols[9].markdown("**פעולה**")
-        st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+sort_opts = {'Total_Value': 'Value (Z)', 'ADP': 'ADP', 'zPTS': 'PTS', 'zREB': 'REB', 'zAST': 'AST', 'zSTL': 'STL', 'zBLK': 'BLK', 'z3PM': '3PM', 'zTOV': 'TOV', 'zFG': 'FG', 'zFT': 'FT'}
+chosen_sort = f_col2.selectbox("מיון לפי קטגוריה:", list(sort_opts.keys()), format_func=lambda x: sort_opts[x], key="sort_main")
+sort_asc = f_col3.checkbox("סדר עולה", value=False, key="asc_main")
 
-        for idx, row in df_sorted_1.reset_index().iterrows():
-            r_cols = st.columns([0.5, 2.2, 1, 0.8, 0.8, 0.8, 0.8, 0.8, 1.2, 2.2])
-            r_cols[0].write(str(idx + 1))
-            r_cols[1].write(f"{row['Player']} ({row['Team']})")
-            r_cols[2].write(str(row['Position']))
-            r_cols[3].write(str(int(row['ADP'])))
-            r_cols[4].write(str(row['Total_Value']))
-            r_cols[5].write(str(row['Total_Value']))
-            r_cols[6].write(str(row['Total_Value']))
-            r_cols[7].write(str(row['Total_Value']))
-            
-            reach_val = int(row['Reach_Score'])
-            reach_pct = f"{max(0, min(100, abs(reach_val) * 5))}%"
-            r_cols[8].write(reach_pct)
-            
-            with r_cols[9]:
-                b_col1, b_col2 = st.columns(2)
-                if b_col1.button("הוסף", key=f"top_my_{row['Player_ID']}"):
-                    draft_player_to_db(row['Player'], "My Team")
-                    st.rerun()
-                if b_col2.button("נלקח", key=f"top_opp_{row['Player_ID']}"):
-                    draft_player_to_db(row['Player'], "Opponent")
-                    st.rerun()
-            
-            st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
+filtered_df = df_board
+if search_query:
+    filtered_df = df_board[df_board['Player'].str.contains(search_query, case=False, na=False) | 
+                           df_board['Team'].str.contains(search_query, case=False, na=False) | 
+                           df_board['Position'].str.contains(search_query, case=False, na=False)]
 
-with tab2:
-    st.markdown("### 📋 טבלת דירוג מלאה (Z-Score Rankings)")
-    
-    # פקדי חיפוש ומיון לטאב 2
-    f_col1, f_col2, f_col3 = st.columns([2, 1.5, 1])
-    search_query = f_col1.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
-    
-    sort_opts_2 = {'Total_Value': 'Value (Z)', 'ADP': 'ADP', 'zPTS': 'PTS', 'zREB': 'REB', 'zAST': 'AST', 'zSTL': 'STL', 'zBLK': 'BLK', 'z3PM': '3PM', 'zTOV': 'TOV', 'zFG': 'FG', 'zFT': 'FT'}
-    chosen_sort_2 = f_col2.selectbox("מיון לפי קטגוריה:", list(sort_opts_2.keys()), format_func=lambda x: sort_opts_2[x], key="sort_t2")
-    sort_asc_2 = f_col3.checkbox("סדר עולה", value=False, key="asc_t2")
-    
-    filtered_df = df_board
-    if search_query:
-        filtered_df = df_board[df_board['Player'].str.contains(search_query, case=False, na=False) | 
-                               df_board['Team'].str.contains(search_query, case=False, na=False) | 
-                               df_board['Position'].str.contains(search_query, case=False, na=False)]
-    
-    df_sorted_2 = filtered_df.sort_values(by=chosen_sort_2, ascending=sort_asc_2)
+df_sorted = filtered_df.sort_values(by=chosen_sort, ascending=sort_asc)
 
-    with st.container(height=420):
-        fh_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
-        fh_cols[0].markdown("**#**")
-        fh_cols[1].markdown("**שחקן**")
-        fh_cols[2].markdown("**POS**")
-        fh_cols[3].markdown("**ADP**")
-        fh_cols[4].markdown("**Z**")
-        fh_cols[5].markdown("**PTS**")
-        fh_cols[6].markdown("**REB**")
-        fh_cols[7].markdown("**AST**")
-        fh_cols[8].markdown("**STL**")
-        fh_cols[9].markdown("**BLK**")
-        fh_cols[10].markdown("**3PM**")
-        fh_cols[11].markdown("**TOV**")
-        fh_cols[12].markdown("**FG**")
-        fh_cols[13].markdown("**FT**")
-        fh_cols[14].markdown("**פעולה**")
-        st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+with st.container(height=420):
+    fh_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
+    fh_cols[0].markdown("**#**")
+    fh_cols[1].markdown("**שחקן**")
+    fh_cols[2].markdown("**POS**")
+    fh_cols[3].markdown("**ADP**")
+    fh_cols[4].markdown("**Z**")
+    fh_cols[5].markdown("**PTS**")
+    fh_cols[6].markdown("**REB**")
+    fh_cols[7].markdown("**AST**")
+    fh_cols[8].markdown("**STL**")
+    fh_cols[9].markdown("**BLK**")
+    fh_cols[10].markdown("**3PM**")
+    fh_cols[11].markdown("**TOV**")
+    fh_cols[12].markdown("**FG**")
+    fh_cols[13].markdown("**FT**")
+    fh_cols[14].markdown("**פעולה**")
+    st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
 
-        for idx, row in df_sorted_2.head(100).reset_index().iterrows():
-            r_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
-            r_cols[0].write(str(idx + 1))
-            r_cols[1].write(f"{row['Player']} ({row['Team']})")
-            r_cols[2].write(str(row['Position']))
-            r_cols[3].write(str(int(row['ADP'])))
-            r_cols[4].write(str(row['Total_Value']))
-            r_cols[5].write(str(row['zPTS']))
-            r_cols[6].write(str(row['zREB']))
-            r_cols[7].write(str(row['zAST']))
-            r_cols[8].write(str(row['zSTL']))
-            r_cols[9].write(str(row['zBLK']))
-            r_cols[10].write(str(row['z3PM']))
-            r_cols[11].write(str(row['zTOV']))
-            r_cols[12].write(str(row['zFG']))
-            r_cols[13].write(str(row['zFT']))
-            
-            with r_cols[14]:
-                b_col1, b_col2 = st.columns(2)
-                if b_col1.button("הוסף", key=f"full_my_{row['Player_ID']}"):
-                    draft_player_to_db(row['Player'], "My Team")
-                    st.rerun()
-                if b_col2.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
-                    draft_player_to_db(row['Player'], "Opponent")
-                    st.rerun()
-                    
-            st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
+    for idx, row in df_sorted.head(100).reset_index().iterrows():
+        r_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
+        r_cols[0].write(str(idx + 1))
+        r_cols[1].write(f"{row['Player']} ({row['Team']})")
+        r_cols[2].write(str(row['Position']))
+        r_cols[3].write(str(int(row['ADP'])))
+        r_cols[4].write(str(row['Total_Value']))
+        r_cols[5].write(str(row['zPTS']))
+        r_cols[6].write(str(row['zREB']))
+        r_cols[7].write(str(row['zAST']))
+        r_cols[8].write(str(row['zSTL']))
+        r_cols[9].write(str(row['zBLK']))
+        r_cols[10].write(str(row['z3PM']))
+        r_cols[11].write(str(row['zTOV']))
+        r_cols[12].write(str(row['zFG']))
+        r_cols[13].write(str(row['zFT']))
+        
+        with r_cols[14]:
+            b_col1, b_col2 = st.columns(2)
+            if b_col1.button("הוסף", key=f"full_my_{row['Player_ID']}"):
+                draft_player_to_db(row['Player'], "My Team")
+                st.rerun()
+            if b_col2.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
+                draft_player_to_db(row['Player'], "Opponent")
+                st.rerun()
+                
+        st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
 
 # --- 2. סלוטים נדרשים בסגל ---
 my_team_roster = pd.read_sql('''
