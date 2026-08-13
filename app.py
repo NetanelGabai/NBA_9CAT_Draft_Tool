@@ -109,7 +109,6 @@ if col_b1.button("-1 בחירה") and st.session_state.global_pick > 1: st.sessi
 if col_b2.button("+1 בחירה"): st.session_state.global_pick += 1; st.rerun()
 if col_b3.button("איפוס"): cursor.execute('DELETE FROM Draft_State'); st.session_state.global_pick = 1; conn.commit(); st.rerun()
 
-# --- חישוב תורות עתידיים לטובת מודל ההישרדות ---
 my_future_picks = []
 for r in range(1, 16):
     p = (r - 1) * num_teams + st.session_state.my_draft_position if r % 2 != 0 else (r - 1) * num_teams + (num_teams - st.session_state.my_draft_position + 1)
@@ -153,7 +152,7 @@ SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Valu
 df_board = pd.read_sql(query, conn)
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
-# --- מודל הישרדות (Survive Prob) ---
+# --- Survive Prob ---
 def get_survive_status(adp):
     buffer = adp - next_my_pick
     if buffer >= 10: return "🟢"
@@ -206,7 +205,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Main Table ---
-st.markdown(f"### 📋 לוח דירוג (תור נוכחי: {st.session_state.global_pick} | התור הבא שלך: {next_my_pick})")
+st.markdown(f"### 📋 לוח דירוג חכם (תור נוכחי: {st.session_state.global_pick} | התור הבא שלך: {next_my_pick})")
 search_query = st.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
 filtered_df = df_board[df_board['Player'].str.contains(search_query, case=False) | df_board['Team'].str.contains(search_query, case=False) | df_board['Position'].str.contains(search_query, case=False)] if search_query else df_board
 df_sorted = filtered_df.sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
@@ -263,15 +262,16 @@ team_totals_query = '''
 '''
 df_teams = pd.read_sql(team_totals_query, conn)
 if not df_teams.empty:
-    # השינוי כאן: use_container_width=False כדי שהטבלה לא תימתח על פני כל המסך
-    st.dataframe(df_teams, use_container_width=False, hide_index=True)
+    h2h_col, empty_col = st.columns([7, 3])
+    with h2h_col:
+        st.dataframe(df_teams, use_container_width=True, hide_index=True)
 else:
     st.info("הטבלה תתעדכן ברגע שיתחילו להיבחר שחקנים בדראפט.")
 
-# --- 3. סלוטים נדרשים בסגל ---
+# --- 3. סלוטים נדרשים בסגל (עיצוב Dashboard) ---
 my_team_roster = pd.read_sql('SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team" ORDER BY ds.Pick_Number', conn)
 if not my_team_roster.empty:
-    st.markdown("##### 📌 סלוטים נדרשים בסגל")
+    st.markdown("##### 📌 סטטוס סלוטים בסגל")
     player_pool = [[p.strip().upper() for p in str(row['Position']).split(',')] for _, row in my_team_roster.iterrows()]
     unassigned = player_pool.copy()
     counts = {'PG': 0, 'SG': 0, 'SF': 0, 'PF': 0, 'C': 0, 'G': 0, 'F': 0, 'UTIL': 0, 'BN': 0}
@@ -284,12 +284,28 @@ if not my_team_roster.empty:
         if any(x in p_pos for x in ['SF', 'PF', 'F']): counts['F'] += 1; unassigned.pop(i); break
     while unassigned and counts['UTIL'] < 3: counts['UTIL'] += 1; unassigned.pop(0)
     while unassigned: counts['BN'] += 1; unassigned.pop(0)
-    scol1, scol2, scol3, scol4, scol5, scol6, scol7, scol8, scol9 = st.columns(9)
-    scol1.metric("PG", f"1/{counts['PG']}"); scol2.metric("SG", f"1/{counts['SG']}"); scol3.metric("SF", f"1/{counts['SF']}"); scol4.metric("PF", f"1/{counts['PF']}"); scol5.metric("C", f"1/{counts['C']}"); scol6.metric("G", f"1/{counts['G']}"); scol7.metric("F", f"1/{counts['F']}"); scol8.metric("UTIL", f"3/{counts['UTIL']}"); scol9.metric("BN", f"3/{counts['BN']}")
+    
+    # HTML חכם שמייצר פס חיווי יפה, הופך לירוק כשהסלוט מלא
+    slots_html = f"""
+    <div style="display: flex; gap: 15px; padding: 15px 20px; background-color: #1e2129; border-radius: 8px; border: 1px solid #4c566a; margin-bottom: 20px; flex-wrap: wrap;">
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">PG</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['PG']>=1 else '#e5e9f0'};">{counts['PG']} / 1</div></div>
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">SG</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['SG']>=1 else '#e5e9f0'};">{counts['SG']} / 1</div></div>
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">SF</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['SF']>=1 else '#e5e9f0'};">{counts['SF']} / 1</div></div>
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">PF</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['PF']>=1 else '#e5e9f0'};">{counts['PF']} / 1</div></div>
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">C</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['C']>=1 else '#e5e9f0'};">{counts['C']} / 1</div></div>
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">G</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['G']>=1 else '#e5e9f0'};">{counts['G']} / 1</div></div>
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">F</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['F']>=1 else '#e5e9f0'};">{counts['F']} / 1</div></div>
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">UTIL</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['UTIL']>=3 else '#e5e9f0'};">{counts['UTIL']} / 3</div></div>
+        <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">BN</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['BN']>=3 else '#e5e9f0'};">{counts['BN']} / 3</div></div>
+    </div>
+    """
+    st.markdown(slots_html, unsafe_allow_html=True)
 
 # --- 4. רוסטר הקבוצה שלך ---
 st.subheader("🟢 My Team Roster")
-st.dataframe(my_team_roster, use_container_width=False, hide_index=True)
+ros_col, empty_col2 = st.columns([7, 3])
+with ros_col:
+    st.dataframe(my_team_roster, use_container_width=True, height=250, hide_index=True)
 
 # --- 5. Team Needs & Fit ---
 st.subheader("🧠 Team Needs & Fit")
@@ -319,4 +335,6 @@ heatmap_query = f'''
         ROUND(CASE WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail) ELSE (SELECT COUNT(*) FROM Available WHERE Position LIKE '%' || s.slot || '%') END * 1.0 / NULLIF(s.demand, 1), 2) as "יחס נדירות"
     FROM SlotsDefinition s
 '''
-st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, height=350, hide_index=True)
+hm_col, empty_col3 = st.columns([7, 3])
+with hm_col:
+    st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, height=350, hide_index=True)
