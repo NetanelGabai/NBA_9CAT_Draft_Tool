@@ -265,7 +265,7 @@ if not my_team_roster.empty:
 st.subheader("🟢 My Team Roster")
 st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# --- 4. Team Needs & Fit (עם תיקון צבע ל-TOV) ---
+# --- 4. Team Needs & Fit ---
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
 l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
@@ -277,19 +277,15 @@ if num_players_my_team > 0:
     for i, cat in enumerate(cats):
         val = my_team[cat]
         diff = val - (l_avg[cat] * num_players_my_team)
-        
-        # עבור TOV: חיובי (יותר איבודים מהממוצע) זה רע -> צבע אדום (inverse=True)
-        # עבור שאר הקטגוריות: חיובי זה טוב -> צבע ירוק
         is_inverse = (cat == 'TOV')
         delta_color = "inverse" if is_inverse else "normal"
-        
         cols[i].metric(cat, round(val, 1), delta=round(diff, 1), delta_color=delta_color)
 else:
     cols = st.columns(7)
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
         cols[i].metric(cat, 0.0, delta=0.0)
 
-# --- 5. Draft Grid (לוח דראפט ליגה מלא מסודר אוטומטית לפי סדר נחש) ---
+# --- 5. Draft Grid (לוח דראפט ליגה מלא נקי בלי אידקס כפול) ---
 st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
 
 teams_order = []
@@ -323,7 +319,8 @@ for r in range(1, num_rounds + 1):
         player_name = pick_to_player.get(p_num, f"(בחירה {p_num})")
         display_grid.loc[display_grid['סיבוב'] == r, t_name] = str(player_name)
 
-st.dataframe(display_grid, use_container_width=True, height=350)
+# שימוש ב-hide_index=True כדי להעלים את עמודת האינדקס האוטומטית ולהשאיר רק את עמודת הסיבוב הנקייה
+st.dataframe(display_grid, use_container_width=True, height=350, hide_index=True)
 
 # --- 6. Positional Heatmap ---
 st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
@@ -346,4 +343,4 @@ heatmap_query = f'''
     LEFT JOIN (SELECT Position, COUNT(*) as cnt FROM Available GROUP BY Position) avail 
     ON s.slot NOT IN ('UTIL', 'BN') AND avail.Position LIKE '%' || s.slot || '%'
 '''
-st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, height=350)
+st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, height=350, hide_index=True)
