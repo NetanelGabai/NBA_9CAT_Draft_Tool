@@ -270,7 +270,7 @@ for r in range(1, num_rounds + 1):
             p = (r - 1) * num_teams + t_idx + 1
         else:
             p = (r - 1) * num_teams + (num_teams - t_idx)
-        row_dict[t_name] = p
+        row_dict[t_name] = str(p)  # המרה למחרוזת למניעת שגיאת טיפוס
     grid_data.append(row_dict)
 
 skeleton_df = pd.DataFrame(grid_data)
@@ -280,9 +280,9 @@ pick_to_player = dict(zip(drafted_df['Pick_Number'], drafted_df['Full_Name']))
 display_grid = skeleton_df.copy()
 for r in range(1, num_rounds + 1):
     for t_name in all_teams:
-        p_num = skeleton_df.loc[skeleton_df['סיבוב'] == r, t_name].values[0]
+        p_num = int(skeleton_df.loc[skeleton_df['סיבוב'] == r, t_name].values[0])
         player_name = pick_to_player.get(p_num, f"(בחירה {p_num})")
-        display_grid.loc[display_grid['סיבוב'] == r, t_name] = player_name
+        display_grid.loc[display_grid['סיבוב'] == r, t_name] = str(player_name)
 
 st.dataframe(display_grid, use_container_width=True, height=350)
 
