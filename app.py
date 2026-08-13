@@ -242,8 +242,8 @@ num_my_players = len(my_team_roster_check)
 if num_my_players > 0:
     l_avg_check = pd.read_sql('SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections', conn).iloc[0]
     
-    cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV'}
-    cat_to_w_key = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'Three_PM': '3pm', 'TOV': 'tov'}
+    cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV', 'FG': 'zFG', 'FT': 'zFT'}
+    cat_to_w_key = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'Three_PM': '3pm', 'TOV': 'tov', 'FG': 'fg', 'FT': 'ft'}
     
     needs_boost = []
     for cat, w_key in cat_to_w_key.items():
@@ -264,18 +264,14 @@ df_board['Total_Value'] = df_board['Total_Value'].round(2)
 
 # --- 1. טבלת דירוג מלאה ראשית ---
 st.markdown("### 📋 טבלת דירוג מלאה (Z-Score Rankings)")
-f_col1, f_col2, f_col3 = st.columns([2, 1.5, 1])
-search_query = f_col1.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
-sort_opts = {'Total_Value': 'Value (Z)', 'ADP': 'ADP', 'PO_Games': 'PO Games', 'zPTS': 'PTS', 'zREB': 'REB', 'zAST': 'AST', 'zSTL': 'STL', 'zBLK': 'BLK', 'z3PM': '3PM', 'zTOV': 'TOV', 'zFG': 'FG', 'zFT': 'FT'}
-chosen_sort = f_col2.selectbox("מיון לפי קטגוריה:", list(sort_opts.keys()), format_func=lambda x: sort_opts[x], key="sort_main")
-sort_asc = f_col3.checkbox("סדר עולה", value=False, key="asc_main")
+search_query = st.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
 
 filtered_df = df_board
 if search_query:
     filtered_df = df_board[df_board['Player'].str.contains(search_query, case=False, na=False) | 
                            df_board['Team'].str.contains(search_query, case=False, na=False) | 
                            df_board['Position'].str.contains(search_query, case=False, na=False)]
-df_sorted = filtered_df.sort_values(by=chosen_sort, ascending=sort_asc)
+df_sorted = filtered_df.sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
 
 # סגנון CSS מקטין פונט, מונע שבירת שורות ומקטין את כפתור הפעולה
 st.markdown("""
@@ -283,28 +279,65 @@ st.markdown("""
     .small-font {
         font-size: 12px !important;
         white-space: nowrap !important;
+        padding-top: 4px;
     }
-    /* הקטנת כפתורי פעולה בטבלה */
+    /* הקטנת כפתורי פעולה וכותרות בטבלה */
     div.stButton > button {
-        padding: 0px 10px !important;
+        padding: 0px 8px !important;
         font-size: 12px !important;
-        min-height: 26px !important;
-        height: 26px !important;
+        min-height: 24px !important;
+        height: 24px !important;
         line-height: 1 !important;
+    }
+    /* מניעת שוליים ענקיים בין העמודות בשביל תצוגה מהודקת */
+    [data-testid="column"] {
+        padding-left: 0.2rem !important;
+        padding-right: 0.2rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-with st.container(height=420):
-    # שים לב לסדר העמודות והיחסים ביניהן (האחרון קטן יותר בשביל הכפתור הבודד)
-    fh_cols = st.columns([0.4, 1.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8])
-    headers = ["#", "שחקן", "POS", "ADP", "PO_Games", "Z", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TOV", "FG", "FT", "פעולה"]
-    for i, h in enumerate(headers):
-        fh_cols[i].markdown(f"<div class='small-font'><b>{h}</b></div>", unsafe_allow_html=True)
-    st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+# מבנה רוחב עמודות קבוע לטבלה ולכותרות (שים לב שהאחרון קטן יותר כי יש רק כפתור אחד)
+col_widths = [0.4, 1.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8]
 
+# -------------------------------------------------------------
+# כותרות צפות (Sticky Headers) - מחוץ לקונטיינר הנגלל
+# -------------------------------------------------------------
+fh_cols = st.columns(col_widths)
+headers_map = [
+    ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("ADP", "ADP"), 
+    ("PO_Games", "PO_Games"), ("Z", "Total_Value"), ("PTS", "zPTS"), 
+    ("REB", "zREB"), ("AST", "zAST"), ("STL", "zSTL"), ("BLK", "zBLK"), 
+    ("3PM", "z3PM"), ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)
+]
+
+for i, (label, sort_col) in enumerate(headers_map):
+    with fh_cols[i]:
+        if sort_col:
+            arrow = ""
+            if st.session_state.sort_col_main == sort_col:
+                arrow = " ↑" if st.session_state.sort_asc_main else " ↓"
+            
+            # כפתור מיון
+            if st.button(f"{label}{arrow}", key=f"sort_{sort_col}", use_container_width=True, help=f"מיין לפי {label}"):
+                if st.session_state.sort_col_main == sort_col:
+                    st.session_state.sort_asc_main = not st.session_state.sort_asc_main
+                else:
+                    st.session_state.sort_col_main = sort_col
+                    # ADP נמוך זה טוב (עולה), השאר גבוה זה טוב (יורד)
+                    st.session_state.sort_asc_main = True if sort_col == 'ADP' else False
+                st.rerun()
+        else:
+            st.markdown(f"<div class='small-font'><b>{label}</b></div>", unsafe_allow_html=True)
+            
+st.markdown("<hr style='margin: 0px 0 5px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+
+# -------------------------------------------------------------
+# גוף הטבלה - בתוך קונטיינר נגלל
+# -------------------------------------------------------------
+with st.container(height=420):
     for idx, row in df_sorted.head(100).reset_index().iterrows():
-        r_cols = st.columns([0.4, 1.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8])
+        r_cols = st.columns(col_widths)
         r_cols[0].markdown(f"<div class='small-font'>{idx + 1}</div>", unsafe_allow_html=True)
         r_cols[1].markdown(f"<div class='small-font'>{row['Player']} ({row['Team']})</div>", unsafe_allow_html=True)
         r_cols[2].markdown(f"<div class='small-font'>{row['Position']}</div>", unsafe_allow_html=True)
@@ -322,7 +355,7 @@ with st.container(height=420):
         r_cols[14].markdown(f"<div class='small-font'>{row['zFT']}</div>", unsafe_allow_html=True)
         
         with r_cols[15]:
-            if st.button("נלקח", key=f"taken_{row['Player_ID']}"):
+            if st.button("נלקח", key=f"taken_{row['Player_ID']}", use_container_width=True):
                 draft_player_to_db(row['Player'], current_picking_team)
                 st.rerun()
                 
