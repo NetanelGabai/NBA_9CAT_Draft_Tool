@@ -183,7 +183,7 @@ LeagueDeviations AS (
 ),
 ZScores AS (
     SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
-           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
+           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0))*{w['ft']} as Total_Value,
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS,
            ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB,
            ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST,
@@ -192,7 +192,7 @@ ZScores AS (
            ROUND(((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0)), 2) as z3PM,
            ROUND((((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1), 2) as zTOV,
            ROUND(((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0)), 2) as zFG,
-           ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0)), 2) as zFT
+           ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0)), 2) as zFT
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
 SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
@@ -257,7 +257,36 @@ if not my_team_roster.empty:
 st.subheader("🟢 My Team Roster")
 st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# --- 4. Team Needs & Fit ---
+# --- 4. Draft Grid (לוח דראפט ליגה מלא) ---
+st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
+all_teams = ["My Team"] + [f"Team {i}" for i in range(1, num_teams)]
+num_rounds = 13
+
+grid_data = []
+for r in range(1, num_rounds + 1):
+    row_dict = {"סיבוב": r}
+    for t_idx, t_name in enumerate(all_teams):
+        if r % 2 != 0:
+            p = (r - 1) * num_teams + t_idx + 1
+        else:
+            p = (r - 1) * num_teams + (num_teams - t_idx)
+        row_dict[t_name] = p
+    grid_data.append(row_dict)
+
+skeleton_df = pd.DataFrame(grid_data)
+drafted_df = pd.read_sql('SELECT ds.Pick_Number, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
+pick_to_player = dict(zip(drafted_df['Pick_Number'], drafted_df['Full_Name']))
+
+display_grid = skeleton_df.copy()
+for r in range(1, num_rounds + 1):
+    for t_name in all_teams:
+        p_num = skeleton_df.loc[skeleton_df['סיבוב'] == r, t_name].values[0]
+        player_name = pick_to_player.get(p_num, f"(בחירה {p_num})")
+        display_grid.loc[display_grid['סיבוב'] == r, t_name] = player_name
+
+st.dataframe(display_grid, use_container_width=True, height=350)
+
+# --- 5. Team Needs & Fit ---
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
 l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
@@ -266,7 +295,7 @@ if not my_team_roster.empty:
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
         cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * len(my_team_roster)), 1))
 
-# --- 5. Positional Heatmap מתוקן (שורה אחת לכל סלוט כולל BN) ---
+# --- 6. Positional Heatmap ---
 st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
 heatmap_query = f'''
     WITH Available AS (SELECT Position FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)),
