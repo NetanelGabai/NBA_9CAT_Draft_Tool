@@ -122,15 +122,13 @@ st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Draft Settings")
 num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=12)
 
-# שדה בחירה ידני ואוטומטי שמתעדכן בדראפט נחש
-user_pick = st.sidebar.number_input(
+# שדה הבחירה מקושר כעת ישירות עם key ל-Session State כדי שיתעדכן אוטומטית
+st.sidebar.number_input(
     "מספר הבחירה הבאה שלך בדראפט", 
     min_value=1, 
     max_value=300, 
-    value=st.session_state.user_pick,
-    key="user_pick_input"
+    key="user_pick"
 )
-st.session_state.user_pick = user_pick
 
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Live Draft Control")
@@ -141,13 +139,12 @@ league_teams = ["My Team"] + [f"Team {i}" for i in range(1, num_teams)]
 draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה?", league_teams)
 
 if st.sidebar.button("בחר שחקן"):
-    # שימוש במספר הבחירה הנוכחי של המשתמש כמספר הבחירה בדראפט
     current_selection_pick = st.session_state.user_pick
     
     cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (draft_team, int(current_selection_pick), selected_player))
     conn.commit()
     
-    # אם הבחירה שייכת לקבוצה שלך, נקפוץ אוטומטית לבחירה הבאה בדראפט נחש
+    # אם בחרת עבור הקבוצה שלך, הקפץ אוטומטית לבחירה הבאה בדראפט נחש
     if draft_team == "My Team":
         st.session_state.user_pick = get_next_snake_pick(st.session_state.user_pick, num_teams)
         
