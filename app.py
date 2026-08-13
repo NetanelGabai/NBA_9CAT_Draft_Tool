@@ -185,7 +185,7 @@ LeagueDeviations AS (
 ),
 ZScores AS (
     SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
-           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0))*{w['ft']} as Total_Value,
+           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS,
            ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB,
            ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST,
@@ -204,6 +204,35 @@ FROM ZScores;
 '''
 
 df_board = pd.read_sql(query, conn)
+
+# --- SMART RECOMMENDATIONS BOOST (Punt-Aware) ---
+# נבדוק אילו קטגוריות חסרות לקבוצה שלנו מבין הקטגוריות שאינן בפאנט
+my_team_roster_check = pd.read_sql('SELECT p.Full_Name, pr.PTS, pr.REB, pr.AST, pr.STL, pr.BLK, pr.Three_PM, pr.TOV FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team"', conn)
+num_my_players = len(my_team_roster_check)
+
+if num_my_players > 0:
+    l_avg_check = pd.read_sql('SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections', conn).iloc[0]
+    
+    # מיפוי בין שמות הקטגוריות לעמודות ה-Z שלהן בטבלה
+    cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV', 'FG': 'zFG', 'FT': 'zFT'}
+    cat_to_w_key = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'Three_PM': '3pm', 'TOV': 'tov', 'FG': 'fg', 'FT': 'ft'}
+    
+    # נמצא אילו קטגוריות פעילות (w=1) והקבוצה נמצאת בהן מתחת לממוצע הליגה
+    needs_boost = []
+    for cat, w_key in cat_to_w_key.items():
+        if w[w_key] == 1 and cat in my_team_roster_check.columns:
+            team_total = my_team_roster_check[cat].sum()
+            expected_total = l_avg_check[cat] * num_my_players
+            if team_total < expected_total:
+                z_col = cat_to_z.get(cat)
+                if z_col and z_col in df_board.columns:
+                    needs_boost.append(z_col)
+    
+    # אם יש צרכים מזוהים, ניתן בונוס קטן (למשל תוספת 5% לערך) לשחקנים שמצטיינים בקטגוריות האלה
+    if needs_boost:
+        boost_sum = df_board[needs_boost].sum(axis=1)
+        df_board['Total_Value'] = df_board['Total_Value'] + (boost_sum * 0.08)
+        df_board['Total_Value'] = df_board['Total_Value'].round(2)
 
 # --- 1. טבלת דירוג מלאה ראשית ---
 st.markdown("### 📋 טבלת דירוג מלאה (Z-Score Rankings)")
@@ -321,7 +350,7 @@ for r in range(1, num_rounds + 1):
 
 st.dataframe(display_grid, use_container_width=True, height=350, hide_index=True)
 
-# --- 6. Positional Heatmap (מתוקן ללא כפילויות) ---
+# --- 6. Positional Heatmap ---
 st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
 heatmap_query = f'''
     WITH Available AS (SELECT Position FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)),
