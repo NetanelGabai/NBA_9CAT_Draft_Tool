@@ -182,7 +182,7 @@ LeagueDeviations AS (
 ),
 ZScores AS (
     SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
-           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
+           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0))*{w['ft']} as Total_Value,
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS,
            ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB,
            ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST,
@@ -191,7 +191,7 @@ ZScores AS (
            ROUND(((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0)), 2) as z3PM,
            ROUND((((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1), 2) as zTOV,
            ROUND(((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0)), 2) as zFG,
-           ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0)), 2) as zFT
+           ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0)), 2) as zFT
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
 SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
@@ -200,7 +200,7 @@ SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Valu
 FROM ZScores;
 '''
 df_board = pd.read_sql(query, conn)
-df_board['Playoff_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
+df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
 # --- SMART RECOMMENDATIONS BOOST ---
 my_team_roster_check = pd.read_sql('SELECT p.Full_Name, pr.PTS, pr.REB, pr.AST, pr.STL, pr.BLK, pr.Three_PM, pr.TOV FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team"', conn)
@@ -209,49 +209,154 @@ if len(my_team_roster_check) > 0:
     cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV', 'FG': 'zFG', 'FT': 'zFT'}
     needs_boost = [z_col for cat, (z_col, w_key) in cat_to_z.items() if cat in ['PTS','REB','AST','STL','BLK','Three_PM','TOV','FG','FT'] and w.get(cat.lower().replace('%','')) == 1 and cat in my_team_roster_check.columns and my_team_roster_check[cat].sum() < (l_avg_check[cat] * len(my_team_roster_check))]
     if needs_boost: df_board['Total_Value'] += df_board[needs_boost].sum(axis=1) * 0.08
-df_board['Total_Value'] += (df_board['Playoff_Games'] - 11) * 0.05
+df_board['Total_Value'] += (df_board['PO_Games'] - 11) * 0.05
 df_board['Total_Value'] = df_board['Total_Value'].round(2)
 
-# --- 1. טבלת דירוג ראשית (עם כפתורים) ---
-st.markdown("### 📋 טבלת דירוג מלאה")
-df_sorted = df_board.sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
+# --- 1. טבלת דירוג ראשית (עם חיפוש, מיון וכפתורים) ---
+st.markdown("### 📋 טבלת דירוג מלאה (Z-Score Rankings)")
+f_col1, f_col2, f_col3 = st.columns([2, 1.5, 1])
+search_query = f_col1.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
+sort_opts = {'Total_Value': 'Value (Z)', 'ADP': 'ADP', 'PO_Games': 'PO Games', 'zPTS': 'PTS', 'zREB': 'REB', 'zAST': 'AST', 'zSTL': 'STL', 'zBLK': 'BLK', 'z3PM': '3PM', 'zTOV': 'TOV', 'zFG': 'FG', 'zFT': 'FT'}
+chosen_sort = f_col2.selectbox("מיון לפי קטגוריה:", list(sort_opts.keys()), format_func=lambda x: sort_opts[x], key="sort_main")
+sort_asc = f_col3.checkbox("סדר עולה", value=False, key="asc_main")
 
-# תצוגה מותאמת אישית עם כפתורים (בלי Player_ID)
-cols_to_show = ['Player', 'Team', 'Position', 'ADP', 'Playoff_Games', 'Total_Value', 'zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zTOV', 'zFG', 'zFT']
-with st.container(height=500):
-    header_cols = st.columns([1.5, 0.7, 0.6, 0.5, 0.6, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.5])
+filtered_df = df_board
+if search_query:
+    filtered_df = df_board[filtered_df['Player'].str.contains(search_query, case=False, na=False) | 
+                           filtered_df['Team'].str.contains(search_query, case=False, na=False) | 
+                           filtered_df['Position'].str.contains(search_query, case=False, na=False)]
+df_sorted = filtered_df.sort_values(by=chosen_sort, ascending=sort_asc)
+
+with st.container(height=420):
+    fh_cols = st.columns([1.6, 0.7, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.8])
     headers = ["שחקן", "Team", "POS", "ADP", "PO_Games", "Z", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TOV", "FG", "FT", "פעולה"]
-    for i, h in enumerate(headers): header_cols[i].markdown(f"**{h}**")
-    
-    for idx, row in df_sorted.head(100).iterrows():
-        r_cols = st.columns([1.5, 0.7, 0.6, 0.5, 0.6, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.5])
+    for i, h in enumerate(headers): fh_cols[i].markdown(f"**{h}**")
+    st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+
+    for idx, row in df_sorted.head(100).reset_index().iterrows():
+        r_cols = st.columns([1.6, 0.7, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.8])
         r_cols[0].write(f"{row['Player']} ({row['Team']})")
         r_cols[1].write(row['Team'])
-        r_cols[2].write(row['Position'])
-        r_cols[3].write(int(row['ADP']))
-        r_cols[4].write(int(row['Playoff_Games']))
-        r_cols[5].write(row['Total_Value'])
-        r_cols[6].write(row['zPTS'])
-        r_cols[7].write(row['zREB'])
-        r_cols[8].write(row['zAST'])
-        r_cols[9].write(row['zSTL'])
-        r_cols[10].write(row['zBLK'])
-        r_cols[11].write(row['z3PM'])
-        r_cols[12].write(row['zTOV'])
-        r_cols[13].write(row['zFG'])
-        r_cols[14].write(row['zFT'])
+        r_cols[2].write(str(row['Position']))
+        r_cols[3].write(str(int(row['ADP'])))
+        r_cols[4].write(str(int(row['PO_Games'])))
+        r_cols[5].write(str(row['Total_Value']))
+        r_cols[6].write(str(row['zPTS']))
+        r_cols[7].write(str(row['zREB']))
+        r_cols[8].write(str(row['zAST']))
+        r_cols[9].write(str(row['zSTL']))
+        r_cols[10].write(str(row['zBLK']))
+        r_cols[11].write(str(row['z3PM']))
+        r_cols[12].write(str(row['zTOV']))
+        r_cols[13].write(str(row['zFG']))
+        r_cols[14].write(str(row['zFT']))
         
         with r_cols[15]:
             b1, b2 = st.columns(2)
             if b1.button("הוסף", key=f"my_{row['Player_ID']}"): draft_player_to_db(row['Player'], "My Team"); st.rerun()
             if b2.button("נלקח", key=f"opp_{row['Player_ID']}"): draft_player_to_db(row['Player'], current_picking_team); st.rerun()
-        st.markdown("<hr style='margin: 2px 0;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
 
-# --- 2. רוסטר וטבלאות נוספות ---
-my_team_roster = pd.read_sql('SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID WHERE ds.Fantasy_Team = "My Team" ORDER BY ds.Pick_Number', conn)
+# --- 2. סלוטים נדרשים בסגל ---
+my_team_roster = pd.read_sql('SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team" ORDER BY ds.Pick_Number', conn)
+if not my_team_roster.empty:
+    st.markdown("##### 📌 סלוטים נדרשים בסגל")
+    player_pool = [[p.strip().upper() for p in str(row['Position']).split(',')] for _, row in my_team_roster.iterrows()]
+    unassigned = player_pool.copy()
+    counts = {'PG': 0, 'SG': 0, 'SF': 0, 'PF': 0, 'C': 0, 'G': 0, 'F': 0, 'UTIL': 0, 'BN': 0}
+    for s_pos in ['PG', 'SG', 'SF', 'PF', 'C']:
+        for i, p_pos in enumerate(unassigned):
+            if s_pos in p_pos: counts[s_pos] += 1; unassigned.pop(i); break
+    for i, p_pos in enumerate(unassigned):
+        if any(x in p_pos for x in ['PG', 'SG', 'G']): counts['G'] += 1; unassigned.pop(i); break
+    for i, p_pos in enumerate(unassigned):
+        if any(x in p_pos for x in ['SF', 'PF', 'F']): counts['F'] += 1; unassigned.pop(i); break
+    while unassigned and counts['UTIL'] < 3: counts['UTIL'] += 1; unassigned.pop(0)
+    while unassigned: counts['BN'] += 1; unassigned.pop(0)
+    scol1, scol2, scol3, scol4, scol5, scol6, scol7, scol8, scol9 = st.columns(9)
+    scol1.metric("PG", f"1/{counts['PG']}"); scol2.metric("SG", f"1/{counts['SG']}"); scol3.metric("SF", f"1/{counts['SF']}"); scol4.metric("PF", f"1/{counts['PF']}"); scol5.metric("C", f"1/{counts['C']}"); scol6.metric("G", f"1/{counts['G']}"); scol7.metric("F", f"1/{counts['F']}"); scol8.metric("UTIL", f"3/{counts['UTIL']}"); scol9.metric("BN", f"3/{counts['BN']}")
+
+# --- 3. רוסטר הקבוצה שלך ---
 st.subheader("🟢 My Team Roster")
-st.dataframe(my_team_roster, use_container_width=True, hide_index=True)
+st.dataframe(my_team_roster, use_container_width=True, height=200, hide_index=True)
 
-st.subheader("🗓️ לוח דראפט ליגה מלא")
-teams_order = ["My Team"] + [f"Team {i}" for i in range(1, num_teams + 1) if i != st.session_state.my_draft_position]
-# (השארנו את ה-Draft Grid וה-Heatmap כמו שהיו)
+# --- 4. Team Needs & Fit ---
+st.subheader("🧠 Team Needs & Fit")
+my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
+l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
+num_players_my_team = len(my_team_roster)
+
+if num_players_my_team > 0:
+    cols = st.columns(7)
+    cats = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']
+    for i, cat in enumerate(cats):
+        val = my_team[cat]
+        diff = val - (l_avg[cat] * num_players_my_team)
+        is_inverse = (cat == 'TOV')
+        delta_color = "inverse" if is_inverse else "normal"
+        cols[i].metric(cat, round(val, 1), delta=round(diff, 1), delta_color=delta_color)
+else:
+    cols = st.columns(7)
+    for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
+        cols[i].metric(cat, 0.0, delta=0.0)
+
+# --- 5. Draft Grid ---
+st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
+teams_order = []
+for i in range(1, num_teams + 1):
+    if i == st.session_state.my_draft_position:
+        teams_order.append("My Team")
+    else:
+        teams_order.append(f"Team {i}")
+
+num_rounds = 13
+grid_data = []
+for r in range(1, num_rounds + 1):
+    row_dict = {"סיבוב": r}
+    for t_idx, t_name in enumerate(teams_order):
+        if r % 2 != 0:
+            p = (r - 1) * num_teams + t_idx + 1
+        else:
+            p = (r - 1) * num_teams + (num_teams - t_idx)
+        row_dict[t_name] = str(p)
+    grid_data.append(row_dict)
+
+skeleton_df = pd.DataFrame(grid_data)
+drafted_df = pd.read_sql('SELECT ds.Pick_Number, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
+pick_to_player = dict(zip(drafted_df['Pick_Number'], drafted_df['Full_Name']))
+
+display_grid = skeleton_df.copy()
+for r in range(1, num_rounds + 1):
+    for t_name in teams_order:
+        p_num = int(skeleton_df.loc[skeleton_df['סיבוב'] == r, t_name].values[0])
+        player_name = pick_to_player.get(p_num, f"(בחירה {p_num})")
+        display_grid.loc[display_grid['סיבוב'] == r, t_name] = str(player_name)
+
+st.dataframe(display_grid, use_container_width=True, height=350, hide_index=True)
+
+# --- 6. Positional Heatmap ---
+st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
+heatmap_query = f'''
+    WITH Available AS (SELECT Position FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)),
+    TotalAvail AS (SELECT COUNT(*) as cnt FROM Available),
+    SlotsDefinition AS (
+        SELECT 'PG' as slot, {num_teams} as demand UNION ALL SELECT 'SG', {num_teams} UNION ALL SELECT 'G', {num_teams} UNION ALL
+        SELECT 'SF', {num_teams} UNION ALL SELECT 'PF', {num_teams} UNION ALL SELECT 'F', {num_teams} UNION ALL
+        SELECT 'C', {num_teams} UNION ALL SELECT 'UTIL', {num_teams} * 3 UNION ALL SELECT 'BN', {num_teams} * 3
+    )
+    SELECT 
+        s.slot as סלוט, 
+        s.demand as "ביקוש (חסר)", 
+        CASE 
+            WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail)
+            ELSE (SELECT COUNT(*) FROM Available WHERE Position LIKE '%' || s.slot || '%')
+        END as "היצע (כשירים כעת)",
+        ROUND(
+            CASE 
+                WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail)
+                ELSE (SELECT COUNT(*) FROM Available WHERE Position LIKE '%' || s.slot || '%')
+            END * 1.0 / NULLIF(s.demand, 1), 2
+        ) as "יחס נדירות"
+    FROM SlotsDefinition s
+'''
+st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, height=350, hide_index=True)
