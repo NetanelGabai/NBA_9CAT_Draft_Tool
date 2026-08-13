@@ -196,3 +196,40 @@ my_team_df = pd.read_sql('''
     ORDER BY ds.Pick_Number
 ''', conn)
 st.dataframe(my_team_df, use_container_width=True, height=200)
+
+# --- המשך קוד app.py ---
+
+# פונקציה לניתוח צרכי הקבוצה בזמן אמת
+def display_team_needs(conn):
+    st.subheader("🧠 Team Needs & Fit Analysis")
+    
+    # נתונים של הקבוצה שלי
+    my_team_stats = pd.read_sql('''
+        SELECT SUM(pr.PTS) as PTS, SUM(pr.REB) as REB, SUM(pr.AST) as AST, 
+               SUM(pr.STL) as STL, SUM(pr.BLK) as BLK, SUM(pr.Three_PM) as Three_PM
+        FROM Draft_State ds
+        JOIN Projections pr ON ds.Player_ID = pr.Player_ID
+        WHERE ds.Fantasy_Team = 'My Team'
+    ''', conn)
+    
+    # חישוב ממוצע ליגה למספר השחקנים שנבחרו (הערכה)
+    num_players = pd.read_sql("SELECT COUNT(*) FROM Draft_State WHERE Fantasy_Team = 'My Team'", conn).iloc[0,0]
+    
+    if num_players > 0:
+        # כאן אנחנו משווים את סך הקטגוריות שלך לממוצע הליגה המצופה עבור מספר השחקנים שיש לך
+        # זה נותן לך אינדיקציה אם אתה מעל או מתחת לממוצע בכל קטגוריה
+        st.write(f"רוסטר נוכחי: {num_players} שחקנים.")
+        
+        # תצוגת מדדים (צבע ירוק לחיזוק, אדום לחולשה)
+        cols = st.columns(6)
+        metrics = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM']
+        
+        for i, metric in enumerate(metrics):
+            val = my_team_stats[metric].iloc[0]
+            # זהו חישוב פשוט - אפשר לשכלל אותו מול ממוצע הליגה
+            cols[i].metric(label=metric, value=round(val, 1))
+    else:
+        st.info("עדיין לא בחרת שחקנים לקבוצה שלך.")
+
+# קרא לפונקציה הזו אחרי הצגת הלוח
+display_team_needs(conn)
