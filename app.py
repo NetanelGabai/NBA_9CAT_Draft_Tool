@@ -91,6 +91,21 @@ if num_players > 0:
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
         cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * num_players), 1))
 
-st.subheader("📍 Positional Heatmap")
-pos_df = pd.read_sql("SELECT Position, COUNT(*) as Available FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State) GROUP BY Position", conn)
-st.bar_chart(pos_df.set_index('Position'))
+# --- Positional Heatmap & Depth Chart מתקדם ---
+st.subheader("📍 Positional Depth & Scarcity (Supply vs Demand)")
+
+# שאילתה שמסננת רק שחקנים רלוונטיים לדראפט (למשל כאלו עם מעל 20 דקות למשחק)
+heatmap_df = pd.read_sql('''
+    SELECT 
+        Position, 
+        COUNT(*) as Available_Players
+    FROM Players p
+    JOIN Projections pr ON p.Player_ID = pr.Player_ID
+    WHERE p.Player_ID NOT IN (SELECT Player_ID FROM Draft_State)
+      AND pr.MIN > 20 AND pr.Games_Played > 20
+    GROUP BY Position
+    ORDER BY Available_Players DESC
+''', conn)
+
+# הצגת טבלה מעוצבת וברורה במקום גרף עמודות מבולבל
+st.dataframe(heatmap_df, use_container_width=True)
