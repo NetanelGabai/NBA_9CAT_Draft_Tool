@@ -204,8 +204,6 @@ tab1, tab2 = st.tabs(["🔥 המלצות דראפט (Top Recommendations)", "�
 
 with tab1:
     st.markdown("### 🎯 המלצות דראפט (Top 30)")
-    
-    # מעטפת גלילה בגובה קבוע (כ-10 שורות)
     with st.container(height=420):
         h_cols = st.columns([0.5, 2.2, 1, 0.8, 0.8, 0.8, 0.8, 0.8, 1.2, 2.2])
         h_cols[0].markdown("**#**")
@@ -237,7 +235,7 @@ with tab1:
             
             with r_cols[9]:
                 b_col1, b_col2 = st.columns(2)
-                if b_col1.button("הוסף לסגל", key=f"top_my_{row['Player_ID']}"):
+                if b_col1.button("הוסף", key=f"top_my_{row['Player_ID']}"):
                     draft_player_to_db(row['Player'], "My Team")
                     st.rerun()
                 if b_col2.button("נלקח", key=f"top_opp_{row['Player_ID']}"):
@@ -256,7 +254,6 @@ with tab2:
                                df_board['Team'].str.contains(search_query, case=False, na=False) | 
                                df_board['Position'].str.contains(search_query, case=False, na=False)]
     
-    # מעטפת גלילה בגובה קבוע גם לטבלה המלאה
     with st.container(height=420):
         fh_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
         fh_cols[0].markdown("**#**")
@@ -366,6 +363,39 @@ if not my_team_roster.empty:
     scol6.metric("G", f"1/{counts['G']}")
     scol7.metric("F", f"1/{counts['F']}")
     scol8.metric("UTIL", f"3/{counts['UTIL']}")
+
+# --- Positional Heatmap (היט מאפ עומק מאגר מול ביקוש) ---
+st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
+heatmap_query = f'''
+    WITH Available AS (
+        SELECT Position FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)
+    )
+    SELECT 
+        pos.slot as סלוט,
+        COALESCE(dem.demand, 0) as "ביקוש (חסר)",
+        COALESCE(avail.cnt, 0) as "היצע (כשירים כעת)",
+        ROUND(COALESCE(avail.cnt, 0) * 1.0 / NULLIF(COALESCE(dem.demand, 1), 0), 2) as "יחס נדירות"
+    FROM (
+        SELECT 'PG' as slot UNION ALL SELECT 'SG' as slot UNION ALL SELECT 'G' as slot UNION ALL
+        SELECT 'SF' as slot UNION ALL SELECT 'PF' as slot UNION ALL SELECT 'F' as slot UNION ALL
+        SELECT 'C' as slot UNION ALL SELECT 'UTIL' as slot
+    ) pos
+    LEFT JOIN (
+        SELECT 'PG' as slot, {num_teams} as demand UNION ALL
+        SELECT 'SG', {num_teams} UNION ALL
+        SELECT 'G', {num_teams} UNION ALL
+        SELECT 'SF', {num_teams} UNION ALL
+        SELECT 'PF', {num_teams} UNION ALL
+        SELECT 'F', {num_teams} UNION ALL
+        SELECT 'C', {num_teams} UNION ALL
+        SELECT 'UTIL', {num_teams} * 3
+    ) dem ON pos.slot = dem.slot
+    LEFT JOIN (
+        SELECT Position, COUNT(*) as cnt FROM Available GROUP BY Position
+    ) avail ON avail.Position LIKE '%' || pos.slot || '%'
+'''
+heatmap_df = pd.read_sql(heatmap_query, conn)
+st.dataframe(heatmap_df, use_container_width=True, height=250)
 
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
