@@ -6,13 +6,12 @@ import io
 # הגדרת תצוגת האתר (רחבה)
 st.set_page_config(page_title="Fantasy NBA Draft Board", layout="wide")
 
-# טעינת בסיס הנתונים לזיכרון (Cache מונע קריאה מחדש של הקובץ בכל לחיצה)
+# טעינת בסיס הנתונים לזיכרון
 @st.cache_resource
 def setup_database():
     conn = sqlite3.connect(':memory:', check_same_thread=False)
     cursor = conn.cursor()
     
-    # בניית הטבלאות
     cursor.execute('CREATE TABLE Players (Player_ID INTEGER PRIMARY KEY AUTOINCREMENT, Full_Name TEXT UNIQUE NOT NULL, Team TEXT, Position TEXT, Injury_Status TEXT)')
     cursor.execute('''CREATE TABLE Projections (
         Player_ID INTEGER, Games_Played REAL, MIN REAL, PTS REAL, REB REAL, AST REAL, STL REAL, BLK REAL,
@@ -20,13 +19,10 @@ def setup_database():
         FOREIGN KEY (Player_ID) REFERENCES Players(Player_ID)
     )''')
     
-    # קריאת הקובץ והזרקה ל-SQL
     with open('nba_data.csv', 'r', encoding='utf-8-sig') as f:
         lines = [line.strip().strip('"') for line in f.readlines()]
     df_raw = pd.read_csv(io.StringIO('\n'.join(lines)))
     df_raw.columns = df_raw.columns.str.strip()
-    
-    # ניקוי כפילויות לשחקנים שעברו בטרייד
     df_clean = df_raw.drop_duplicates(subset=['Player'], keep='first').copy()
     
     column_mapping = {
@@ -51,14 +47,25 @@ def setup_database():
     return conn
 
 conn = setup_database()
+cursor = conn.cursor()
 
-# --- ממשק המשתמש ---
+# יצירת טבלת מעקב דראפט בזיכרון אם לא קיימת
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS Draft_State (
+    Draft_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+    Player_ID INTEGER,
+    Fantasy_Team TEXT,
+    Pick_Number INTEGER,
+    FOREIGN KEY (Player_ID) REFERENCES Players(Player_ID)
+)
+''')
+conn.commit()
+
+# --- ממשק משתמש (Streamlit UI) ---
 st.title("🏀 Fantasy NBA 9-Cat Draft Tool")
 
-# תפריט צד לאסטרטגיית פאנט
+# תפריט צד: אסטרטגיית פאנט
 st.sidebar.header("🎯 Punt Strategy")
-st.sidebar.write("בחר קטגוריות שתרצה להתעלם מהן:")
-
 punt_fg = st.sidebar.checkbox("Punt FG%")
 punt_ft = st.sidebar.checkbox("Punt FT%")
 punt_3pm = st.sidebar.checkbox("Punt 3PM")
@@ -69,7 +76,6 @@ punt_blk = st.sidebar.checkbox("Punt BLK")
 punt_pts = st.sidebar.checkbox("Punt PTS")
 punt_tov = st.sidebar.checkbox("Punt TOV")
 
-# הגדרת המשקלים לשאילתה הדינמית (0 אם סומן כדי לאפס את השפעת הקטגוריה, 1 אם לא)
 w_fg = 0 if punt_fg else 1
 w_ft = 0 if punt_ft else 1
 w_3pm = 0 if punt_3pm else 1
@@ -80,7 +86,36 @@ w_blk = 0 if punt_blk else 1
 w_pts = 0 if punt_pts else 1
 w_tov = 0 if punt_tov else 1
 
-# הרצת ה-SQL הדינמי עם משקולות הפאנט
+# --- אזור ניהול בחירות דראפט (Live Draft Control) ---
+st.sidebar.markdown("---")
+st.sidebar.header("🛠️ Live Draft Control")
+
+# שליפת רשימת שחקנים פנויים לבחירה
+available_players_df = pd.read_sql('''
+    SELECT Full_Name FROM Players 
+    WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)
+    ORDER BY Full_Name
+''', conn)
+
+selected_player = st.sidebar.selectbox("בחר שחקן לתפוס:", available_players_df['Full_Name'])
+draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה?", ["My Team", "Opponent 1", "Opponent 2", "Opponent 3"])
+
+if st.sidebar.button("בחר שחקן (Draft Player)"):
+    # מציאת מספר הבחירה הבא
+    next_pick = pd.read_sql('SELECT COUNT(*) as cnt FROM Draft_State', conn)['cnt'].iloc[0] + 1
+    cursor.execute('''
+        INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number)
+        SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?
+    ''', (draft_team, next_pick, selected_player))
+    conn.commit()
+    st.rerun()
+
+if st.sidebar.button("אפס את כל הדראפט"):
+    cursor.execute('DELETE FROM Draft_State')
+    conn.commit()
+    st.rerun()
+
+# --- שאילתת המאסטר ללוח החי (לא כולל שחקנים שנבחרו) ---
 query = f'''
 WITH PuntStrategy AS (
     SELECT {w_pts} as w_pts, {w_reb} as w_reb, {w_ast} as w_ast, {w_stl} as w_stl, 
@@ -90,6 +125,7 @@ PlayerPool AS (
     SELECT p.Player_ID, p.Full_Name, p.Team, pr.* 
     FROM Players p JOIN Projections pr ON p.Player_ID = pr.Player_ID
     WHERE pr.MIN > 15 AND pr.Games_Played > 10
+      AND p.Player_ID NOT IN (SELECT Player_ID FROM Draft_State)
 ),
 LeagueAvg AS (
     SELECT AVG(PTS) as avg_pts, AVG(REB) as avg_reb, AVG(AST) as avg_ast, AVG(STL) as avg_stl, 
@@ -136,12 +172,23 @@ SELECT Player, Team,
        ROUND(zFG, 2) as zFG, ROUND(zFT, 2) as zFT, ROUND(zTOV, 2) as zTOV
 FROM ZScores
 ORDER BY Total_Value DESC
-LIMIT 150;
+LIMIT 100;
 '''
 
-# משיכת הנתונים למסגרת של פנדס
 df_board = pd.read_sql(query, conn)
 
-# הצגת הטבלה המעוצבת באתר
-st.subheader("📊 Live Big Board")
-st.dataframe(df_board, use_container_width=True, height=800)
+# הצגת הלוח החי
+st.subheader("📊 Live Big Board (Available Players)")
+st.dataframe(df_board, use_container_width=True, height=500)
+
+# הצגת הקבוצה שלי
+st.subheader("🟢 My Team Roster")
+my_team_df = pd.read_sql('''
+    SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, pr.PTS, pr.AST, pr.REB
+    FROM Draft_State ds
+    JOIN Players p ON ds.Player_ID = p.Player_ID
+    JOIN Projections pr ON p.Player_ID = pr.Player_ID
+    WHERE ds.Fantasy_Team = 'My Team'
+    ORDER BY ds.Pick_Number
+''', conn)
+st.dataframe(my_team_df, use_container_width=True, height=200)
