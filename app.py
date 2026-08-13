@@ -90,7 +90,6 @@ w_tov = 0 if punt_tov else 1
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Live Draft Control")
 
-# שליפת רשימת שחקנים פנויים לבחירה
 available_players_df = pd.read_sql('''
     SELECT Full_Name FROM Players 
     WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)
@@ -98,11 +97,16 @@ available_players_df = pd.read_sql('''
 ''', conn)
 
 selected_player = st.sidebar.selectbox("בחר שחקן לתפוס:", available_players_df['Full_Name'])
-draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה?", ["My Team", "Opponent 1", "Opponent 2", "Opponent 3"])
+
+# יצירת רשימה של 12 קבוצות בליגה (הקבוצה שלך ועוד 11 יריבים)
+league_teams = ["My Team"] + [f"Team {i}" for i in range(1, 12)]
+draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה?", league_teams)
 
 if st.sidebar.button("בחר שחקן (Draft Player)"):
-    # מציאת מספר הבחירה הבא
-    next_pick = pd.read_sql('SELECT COUNT(*) as cnt FROM Draft_State', conn)['cnt'].iloc[0] + 1
+    # תיקון באג האפסים: וידוא שמספר הבחירה הוא מספר שלם נקי (Scalar) בלבד
+    res = cursor.execute('SELECT COUNT(*) FROM Draft_State').fetchone()
+    next_pick = int(res[0]) + 1 if res else 1
+    
     cursor.execute('''
         INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number)
         SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?
@@ -115,7 +119,7 @@ if st.sidebar.button("אפס את כל הדראפט"):
     conn.commit()
     st.rerun()
 
-# --- שאילתת המאסטר ללוח החי (לא כולל שחקנים שנבחרו) ---
+# --- שאילתת המאסטר ללוח החי ---
 query = f'''
 WITH PuntStrategy AS (
     SELECT {w_pts} as w_pts, {w_reb} as w_reb, {w_ast} as w_ast, {w_stl} as w_stl, 
