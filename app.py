@@ -151,6 +151,7 @@ if schedule_file is not None:
 if not playoff_games_map:
     playoff_games_map = {t: 11 for t in TEAM_NAME_TO_ABBR.values()}
 
+# --- Draft Logic ---
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ הגדרות דראפט (Snake)")
 num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=12)
@@ -234,15 +235,15 @@ df_board = pd.read_sql(query, conn)
 # הוספת נתוני לו"ז פלייאוף דינמיים
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
-# --- SMART RECOMMENDATIONS BOOST (בטוח לחלוטין) ---
+# --- SMART RECOMMENDATIONS BOOST ---
 my_team_roster_check = pd.read_sql('SELECT p.Full_Name, pr.PTS, pr.REB, pr.AST, pr.STL, pr.BLK, pr.Three_PM, pr.TOV FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team"', conn)
 num_my_players = len(my_team_roster_check)
 
 if num_my_players > 0:
     l_avg_check = pd.read_sql('SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections', conn).iloc[0]
     
-    cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV'}
-    cat_to_w_key = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'Three_PM': '3pm', 'TOV': 'tov'}
+    cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV', 'FG': 'zFG', 'FT': 'zFT'}
+    cat_to_w_key = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'Three_PM': '3pm', 'TOV': 'tov', 'FG': 'fg', 'FT': 'ft'}
     
     needs_boost = []
     for cat, w_key in cat_to_w_key.items():
@@ -277,7 +278,7 @@ if search_query:
 df_sorted = filtered_df.sort_values(by=chosen_sort, ascending=sort_asc)
 
 with st.container(height=420):
-    fh_cols = st.columns([0.4, 1.6, 0.7, 0.6, 0.6, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.8])
+    fh_cols = st.columns([0.4, 1.8, 0.8, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.0])
     fh_cols[0].markdown("**#**")
     fh_cols[1].markdown("**שחקן**")
     fh_cols[2].markdown("**POS**")
@@ -297,7 +298,7 @@ with st.container(height=420):
     st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
 
     for idx, row in df_sorted.head(100).reset_index().iterrows():
-        r_cols = st.columns([0.4, 1.6, 0.7, 0.6, 0.6, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.8])
+        r_cols = st.columns([0.4, 1.8, 0.8, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.0])
         r_cols[0].write(str(idx + 1))
         r_cols[1].write(f"{row['Player']} ({row['Team']})")
         r_cols[2].write(str(row['Position']))
@@ -315,11 +316,8 @@ with st.container(height=420):
         r_cols[14].write(str(row['zFT']))
         
         with r_cols[15]:
-            b_col1, b_col2 = st.columns(2)
-            if b_col1.button("הוסף", key=f"full_my_{row['Player_ID']}"):
-                draft_player_to_db(row['Player'], "My Team")
-                st.rerun()
-            if b_col2.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
+            # כפתור יחיד "נלקח" שמכניס אוטומטית לקבוצה התורנית (שלי או של היריב לפי סדר הדראפט)
+            if st.button("נלקח", key=f"taken_{row['Player_ID']}"):
                 draft_player_to_db(row['Player'], current_picking_team)
                 st.rerun()
                 
