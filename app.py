@@ -8,8 +8,8 @@ st.set_page_config(page_title="Fantasy NBA Draft Tool", layout="wide")
 if 'my_draft_position' not in st.session_state:
     st.session_state.my_draft_position = 1
 
-if 'my_current_pick' not in st.session_state:
-    st.session_state.my_current_pick = 1
+if 'global_pick' not in st.session_state:
+    st.session_state.global_pick = 1
 
 if 'sort_col_main' not in st.session_state:
     st.session_state.sort_col_main = 'Total_Value'
@@ -99,25 +99,20 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS Draft_State (
 )''')
 conn.commit()
 
-def get_next_snake_pick(current_p, T):
-    R = ((current_p - 1) // T) + 1
+def get_team_for_pick(p, T, my_pos):
+    R = ((p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) % T) + 1
+        pos = ((p - 1) % T) + 1
     else:
-        s = T - ((current_p - 1) % T)
-    
-    next_R = R + 1
-    if next_R % 2 != 0:
-        next_p = (next_R - 1) * T + s
-    else:
-        next_p = next_R * T - s + 1
-    return next_p
+        pos = T - ((p - 1) % T)
+    return "My Team" if pos == my_pos else f"Team {pos}"
 
 def draft_player_to_db(player_name, team_name):
-    pick_to_save = st.session_state.my_current_pick
+    pick_to_save = st.session_state.global_pick
     cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (team_name, int(pick_to_save), player_name))
     conn.commit()
-    st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
+    # קידום מונה הבחירות בדיוק ב-1 קדימה לבחירה הבאה בתור
+    st.session_state.global_pick += 1
 
 # --- UI Sidebar ---
 st.sidebar.header("🎯 Punt Strategy")
@@ -138,26 +133,27 @@ num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_valu
 chosen_pos = st.sidebar.number_input("הבחירה שלך בסבב (Draft Position)", min_value=1, max_value=int(num_teams), value=st.session_state.get('my_draft_position', 1))
 if chosen_pos != st.session_state.my_draft_position:
     st.session_state.my_draft_position = chosen_pos
-    st.session_state.my_current_pick = chosen_pos
 
-st.sidebar.markdown(f"**הבחירה שלך בתור כרגע:** בחירה מספר `{st.session_state.my_current_pick}`")
+current_picking_team = get_team_for_pick(st.session_state.global_pick, num_teams, st.session_state.my_draft_position)
+st.sidebar.markdown(f"**בחירה נוכחית:** `{st.session_state.global_pick}`")
+st.sidebar.markdown(f"**תור עכשיו:** `{current_picking_team}`")
 
 col_b1, col_b2, col_b3 = st.sidebar.columns(3)
 if col_b1.button("-1 בחירה"):
-    if st.session_state.my_current_pick > 1:
-        st.session_state.my_current_pick -= 1
+    if st.session_state.global_pick > 1:
+        st.session_state.global_pick -= 1
         st.rerun()
 if col_b2.button("+1 בחירה"):
-    st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
+    st.session_state.global_pick += 1
     st.rerun()
 if col_b3.button("איפוס מונה"):
-    st.session_state.my_current_pick = st.session_state.my_draft_position
+    st.session_state.global_pick = 1
     st.rerun()
 
 st.sidebar.markdown("---")
 if st.sidebar.button("אפס דראפט מלא"):
     cursor.execute('DELETE FROM Draft_State')
-    st.session_state.my_current_pick = st.session_state.my_draft_position
+    st.session_state.global_pick = 1
     conn.commit()
     st.rerun()
 
@@ -203,7 +199,7 @@ ZScores AS (
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
 SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
-       ROUND(ADP - {st.session_state.my_current_pick}, 0) as Reach_Score,
+       ROUND(ADP - {st.session_state.global_pick}, 0) as Reach_Score,
        zPTS, zREB, zAST, zSTL, zBLK, z3PM, zTOV, zFG, zFT
 FROM ZScores;
 '''
@@ -242,7 +238,7 @@ with st.container(height=420):
                 draft_player_to_db(row['Player'], "My Team")
                 st.rerun()
             if b_col2.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
-                draft_player_to_db(row['Player'], "Opponent")
+                draft_player_to_db(row['Player'], current_picking_team)
                 st.rerun()
                 
         st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
@@ -306,7 +302,7 @@ for r in range(1, num_rounds + 1):
     grid_data.append(row_dict)
 
 skeleton_df = pd.DataFrame(grid_data)
-drafted_df = pd.read_sql('SELECT ds.Pick_Number, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
+drafted_df = pd.read_sql('SELECT ds.Pick_Number, ds.Fantasy_Team, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
 
 pick_to_player = dict(zip(drafted_df['Pick_Number'], drafted_df['Full_Name']))
 
