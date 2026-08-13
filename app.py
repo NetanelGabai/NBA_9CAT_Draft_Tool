@@ -181,7 +181,7 @@ PlayerImpact AS (
     FROM PlayerPool pp CROSS JOIN LeagueAvg la
 ),
 LeagueImpactStats AS (
-    SELECT AVG(fg_impact) as avg_fg_imp, AVG(fg_impact*fg_impact) as sq_fg_imp, AVG(ft_impact) as avg_ft_imp, AVG(ft_impact*ft_impact) as sq_ft_imp, AVG(PTS*PTS) as sq_pts, AVG(REB*REB) as sq_reb, AVG(AST*AST) as sq_ast, AVG(STL*STL) as sq_ast, AVG(BLK*BLK) as sq_blk, AVG(Three_PM*Three_PM) as sq_3pm, AVG(TOV*TOV) as sq_tov 
+    SELECT AVG(fg_impact) as avg_fg_imp, AVG(fg_impact*fg_impact) as sq_fg_imp, AVG(ft_impact) as avg_ft_imp, AVG(ft_impact*ft_impact) as sq_ft_imp, AVG(PTS*PTS) as sq_pts, AVG(REB*REB) as sq_reb, AVG(AST*AST) as sq_ast, AVG(STL*STL) as sq_stl, AVG(BLK*BLK) as sq_blk, AVG(Three_PM*Three_PM) as sq_3pm, AVG(TOV*TOV) as sq_tov 
     FROM PlayerImpact
 ),
 LeagueDeviations AS (
@@ -239,13 +239,10 @@ with st.container(height=420):
         with r_cols[14]:
             b_col1, b_col2 = st.columns(2)
             if b_col1.button("הוסף לסגל", key=f"full_my_{row['Player_ID']}"):
-                # אם זו הבחירה שלך, נשמר תחת My Team
-                team_to_assign = "My Team" if st.session_state.my_current_pick == st.session_state.my_draft_position or (st.session_state.my_current_pick - st.session_state.my_draft_position) % (2 * num_teams) == 0 else f"Pick {st.session_state.my_current_pick}" 
-                # רגע, פשוט נגדיר שאם לוחצים "הוסף לסגל" זה My Team, ואם "נלקח" זה Opponent אוטומטית לפי התור!
                 draft_player_to_db(row['Player'], "My Team")
                 st.rerun()
             if b_col2.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
-                draft_player_to_db(row['Player'], f"Opponent Pick {st.session_state.my_current_pick}")
+                draft_player_to_db(row['Player'], "Opponent")
                 st.rerun()
                 
         st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
@@ -289,7 +286,6 @@ else:
 # --- 5. Draft Grid (לוח דראפט ליגה מלא מסודר אוטומטית לפי סדר נחש) ---
 st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
 
-# בניית שמות הקבוצות בצורה פשוטה לפי מספר הקבוצות בליגה
 teams_order = []
 for i in range(1, num_teams + 1):
     if i == st.session_state.my_draft_position:
@@ -310,7 +306,7 @@ for r in range(1, num_rounds + 1):
     grid_data.append(row_dict)
 
 skeleton_df = pd.DataFrame(grid_data)
-drafted_df = pd.read_sql('SELECT ds.Pick_Number, ds.Fantasy_Team, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
+drafted_df = pd.read_sql('SELECT ds.Pick_Number, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
 
 pick_to_player = dict(zip(drafted_df['Pick_Number'], drafted_df['Full_Name']))
 
@@ -319,7 +315,6 @@ for r in range(1, num_rounds + 1):
     for t_name in teams_order:
         p_num = int(skeleton_df.loc[skeleton_df['סיבוב'] == r, t_name].values[0])
         player_name = pick_to_player.get(p_num, f"(בחירה {p_num})")
-        # אם השחקן שייך לקבוצה שלנו, נציג אותו. אם נבחר על ידי יריב, נציג את שמו תחת הטור הנכון או כ"נלקח"
         display_grid.loc[display_grid['סיבוב'] == r, t_name] = str(player_name)
 
 st.dataframe(display_grid, use_container_width=True, height=350)
