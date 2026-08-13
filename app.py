@@ -164,7 +164,7 @@ LIMIT 100;
 
 df_board = pd.read_sql(query, conn)
 st.subheader("📊 Live Big Board (עם מדד Reach)")
-st.dataframe(df_board.style.background_gradient(subset=['Reach_Score'], cmap='RdYlGn_r'), use_container_width=True, height=500)
+st.dataframe(df_board, use_container_width=True, height=500)
 
 # --- Team Analysis ---
 st.subheader("🧠 Team Needs & Fit")
