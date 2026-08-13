@@ -301,8 +301,7 @@ with tab2:
                     
             st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
 
-# --- Team Analysis & Roster ---
-st.subheader("🟢 My Team Roster")
+# --- 2. סלוטים נדרשים בסגל ---
 my_team_roster = pd.read_sql('''
     SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB
     FROM Draft_State ds
@@ -311,9 +310,7 @@ my_team_roster = pd.read_sql('''
     WHERE ds.Fantasy_Team = 'My Team'
     ORDER BY ds.Pick_Number
 ''', conn)
-st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# --- מעקב סלוטים נדרשים בסגנון קומפקטי ---
 if not my_team_roster.empty:
     st.markdown("##### 📌 סלוטים נדרשים בסגל")
     player_pool = []
@@ -364,7 +361,22 @@ if not my_team_roster.empty:
     scol7.metric("F", f"1/{counts['F']}")
     scol8.metric("UTIL", f"3/{counts['UTIL']}")
 
-# --- Positional Heatmap (היט מאפ עומק מאגר מול ביקוש) ---
+# --- 3. רוסטר הקבוצה שלך ---
+st.subheader("🟢 My Team Roster")
+st.dataframe(my_team_roster, use_container_width=True, height=200)
+
+# --- 4. Team Needs & Fit ---
+st.subheader("🧠 Team Needs & Fit")
+my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
+l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
+
+num_players = conn.execute("SELECT COUNT(*) FROM Draft_State WHERE Fantasy_Team = 'My Team'").fetchone()[0]
+if num_players > 0:
+    cols = st.columns(7)
+    for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
+        cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * num_players), 1))
+
+# --- 5. Positional Heatmap (רק בסוף) ---
 st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
 heatmap_query = f'''
     WITH Available AS (
@@ -396,13 +408,3 @@ heatmap_query = f'''
 '''
 heatmap_df = pd.read_sql(heatmap_query, conn)
 st.dataframe(heatmap_df, use_container_width=True, height=250)
-
-st.subheader("🧠 Team Needs & Fit")
-my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
-l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
-
-num_players = conn.execute("SELECT COUNT(*) FROM Draft_State WHERE Fantasy_Team = 'My Team'").fetchone()[0]
-if num_players > 0:
-    cols = st.columns(7)
-    for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
-        cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * num_players), 1))
