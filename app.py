@@ -212,15 +212,86 @@ my_team_roster = pd.read_sql('''
 ''', conn)
 st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# הצגת ניהול עמדות (סלוטים נדרשים מול מה שנבחר)
+# --- מנוע התאמת סלוטים מדויק לפי דרישת המשתמש ---
 if not my_team_roster.empty:
-    st.markdown("##### 📌 מעקב סלוטים בסגל (מתוך מבנה 13 שחקנים: PG, SG, G, SF, PF, F, C, 3xUtil, 3xBN)")
-    slot_col1, slot_col2, slot_col3, slot_col4, slot_col5 = st.columns(5)
-    slot_col1.metric('סה"כ שחקנים', len(my_team_roster), "מתוך 13")
-    slot_col2.metric("Guard (PG/SG/G)", len(my_team_roster[my_team_roster['Position'].str.contains('PG|SG|G', case=False, na=False)]))
-    slot_col3.metric("Forward (SF/PF/F)", len(my_team_roster[my_team_roster['Position'].str.contains('SF|PF|F', case=False, na=False)]))
-    slot_col4.metric("Center (C)", len(my_team_roster[my_team_roster['Position'].str.contains('C', case=False, na=False)]))
-    slot_col5.metric("Util / Bench", max(0, len(my_team_roster) - 10))
+    st.markdown("##### 📌 מעקב סלוטים מדויק בסגל (חובה: 1 מכל עמדה + G/F + Util + BN)")
+    
+    # עיבוד השחקנים שהתקבלו
+    player_pool = []
+    for idx, row in my_team_roster.iterrows():
+        pos_list = [p.strip().upper() for p in str(row['Position']).split(',')]
+        player_pool.append({'name': row['Player'], 'pos': pos_list})
+        
+    unassigned = player_pool.copy()
+    slot_status = {}
+    
+    # 1. עמדות חובה סטריקטיות
+    for strict_pos in ['PG', 'SG', 'SF', 'PF', 'C']:
+        found = None
+        for p in unassigned:
+            if strict_pos in p['pos']:
+                found = p
+                break
+        if found:
+            slot_status[strict_pos] = found['name']
+            unassigned.remove(found)
+        else:
+            slot_status[strict_pos] = "⚠️ חסר!"
+            
+    # 2. עמדת G (דורשת PG או SG או G)
+    found = None
+    for p in unassigned:
+        if 'PG' in p['pos'] or 'SG' in p['pos'] or 'G' in p['pos']:
+            found = p
+            break
+    if found:
+        slot_status['G'] = found['name']
+        unassigned.remove(found)
+    else:
+        slot_status['G'] = "⚠️ חסר!"
+        
+    # 3. עמדת F (דורשת SF או PF או F)
+    found = None
+    for p in unassigned:
+        if 'SF' in p['pos'] or 'PF' in p['pos'] or 'F' in p['pos']:
+            found = p
+            break
+    if found:
+        slot_status['F'] = found['name']
+        unassigned.remove(found)
+    else:
+        slot_status['F'] = "⚠️ חסר!"
+        
+    # 4. עמדות Util (3 סלוטים)
+    utils = []
+    for _ in range(3):
+        if unassigned:
+            utils.append(unassigned.pop(0)['name'])
+        else:
+            utils.append("פנוי")
+            
+    # 5. עמדות ספסל BN (3 סלוטים)
+    bns = []
+    for _ in range(3):
+        if unassigned:
+            bns.append(unassigned.pop(0)['name'])
+        else:
+            bns.append("פנוי")
+
+    # הצגה ויזואלית במסגרות נקיות
+    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+    col1.metric("PG", slot_status['PG'])
+    col2.metric("SG", slot_status['SG'])
+    col3.metric("SF", slot_status['SF'])
+    col4.metric("PF", slot_status['PF'])
+    col5.metric("C", slot_status['C'])
+    col6.metric("G (Flex)", slot_status['G'])
+    col7.metric("F (Flex)", slot_status['F'])
+    
+    u_col1, u_col2, u_col3 = st.columns(3)
+    u_col1.metric("Util 1", utils[0])
+    u_col2.metric("Util 2", utils[1])
+    u_col3.metric("Util 3", utils[2])
 
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
