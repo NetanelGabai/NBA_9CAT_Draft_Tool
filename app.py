@@ -140,7 +140,7 @@ if chosen_pos != st.session_state.my_draft_position:
     st.session_state.my_draft_position = chosen_pos
     st.session_state.my_current_pick = chosen_pos
 
-st.sidebar.markdown(f"**הבחירה שלך בתור כרגע:** `{st.session_state.my_current_pick}`")
+st.sidebar.markdown(f"**הבחירה שלך בתור כרגע:** בחירה מספר `{st.session_state.my_current_pick}`")
 
 col_b1, col_b2, col_b3 = st.sidebar.columns(3)
 if col_b1.button("-1 בחירה"):
@@ -181,7 +181,7 @@ PlayerImpact AS (
     FROM PlayerPool pp CROSS JOIN LeagueAvg la
 ),
 LeagueImpactStats AS (
-    SELECT AVG(fg_impact) as avg_fg_imp, AVG(fg_impact*fg_impact) as sq_fg_imp, AVG(ft_impact) as avg_ft_imp, AVG(ft_impact*ft_impact) as sq_ft_imp, AVG(PTS*PTS) as sq_pts, AVG(REB*REB) as sq_reb, AVG(AST*AST) as sq_ast, AVG(STL*STL) as sq_stl, AVG(BLK*BLK) as sq_blk, AVG(Three_PM*Three_PM) as sq_3pm, AVG(TOV*TOV) as sq_tov 
+    SELECT AVG(fg_impact) as avg_fg_imp, AVG(fg_impact*fg_impact) as sq_fg_imp, AVG(ft_impact) as avg_ft_imp, AVG(ft_impact*ft_impact) as sq_ft_imp, AVG(PTS*PTS) as sq_pts, AVG(REB*REB) as sq_reb, AVG(AST*AST) as sq_ast, AVG(STL*STL) as sq_ast, AVG(BLK*BLK) as sq_blk, AVG(Three_PM*Three_PM) as sq_3pm, AVG(TOV*TOV) as sq_tov 
     FROM PlayerImpact
 ),
 LeagueDeviations AS (
@@ -226,33 +226,26 @@ if search_query:
 df_sorted = filtered_df.sort_values(by=chosen_sort, ascending=sort_asc)
 
 with st.container(height=420):
-    fh_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 2.2])
+    fh_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
     fh_cols[0].markdown("**#**"); fh_cols[1].markdown("**שחקן**"); fh_cols[2].markdown("**POS**"); fh_cols[3].markdown("**ADP**"); fh_cols[4].markdown("**Z**")
     fh_cols[5].markdown("**PTS**"); fh_cols[6].markdown("**REB**"); fh_cols[7].markdown("**AST**"); fh_cols[8].markdown("**STL**"); fh_cols[9].markdown("**BLK**")
     fh_cols[10].markdown("**3PM**"); fh_cols[11].markdown("**TOV**"); fh_cols[12].markdown("**FG**"); fh_cols[13].markdown("**FT**"); fh_cols[14].markdown("**פעולה**")
     st.markdown("<hr style='margin: 0px 0 10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
 
-    league_teams_list = ["My Team"] + [f"Team {i}" for i in range(1, num_teams) if f"Team {i}" != "My Team" or f"Team {i}" not in [f"Team {x}" for x in range(1, num_teams)]]
-    # רשימת כל הקבוצות בליגה עבור תפריט הבחירה ליריבים
-    all_league_teams = []
-    for i in range(1, num_teams + 1):
-        t_label = "My Team" if i == st.session_state.my_draft_position else f"Team {i}"
-        all_league_teams.append(t_label)
-
     for idx, row in df_sorted.head(100).reset_index().iterrows():
-        r_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 2.2])
+        r_cols = st.columns([0.4, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 1.8])
         r_cols[0].write(str(idx + 1)); r_cols[1].write(f"{row['Player']} ({row['Team']})"); r_cols[2].write(str(row['Position'])); r_cols[3].write(str(int(row['ADP']))); r_cols[4].write(str(row['Total_Value'])); r_cols[5].write(str(row['zPTS'])); r_cols[6].write(str(row['zREB'])); r_cols[7].write(str(row['zAST'])); r_cols[8].write(str(row['zSTL'])); r_cols[9].write(str(row['zBLK'])); r_cols[10].write(str(row['z3PM'])); r_cols[11].write(str(row['zTOV'])); r_cols[12].write(str(row['zFG'])); r_cols[13].write(str(row['zFT']))
         
         with r_cols[14]:
-            b_col1, b_col2, b_col3 = st.columns([1.2, 1, 1.2])
-            if b_col1.button("הוסף", key=f"full_my_{row['Player_ID']}"):
+            b_col1, b_col2 = st.columns(2)
+            if b_col1.button("הוסף לסגל", key=f"full_my_{row['Player_ID']}"):
+                # אם זו הבחירה שלך, נשמר תחת My Team
+                team_to_assign = "My Team" if st.session_state.my_current_pick == st.session_state.my_draft_position or (st.session_state.my_current_pick - st.session_state.my_draft_position) % (2 * num_teams) == 0 else f"Pick {st.session_state.my_current_pick}" 
+                # רגע, פשוט נגדיר שאם לוחצים "הוסף לסגל" זה My Team, ואם "נלקח" זה Opponent אוטומטית לפי התור!
                 draft_player_to_db(row['Player'], "My Team")
                 st.rerun()
-            
-            # תפריט בחירת קבוצה נפתחת בלחיצה על נלקח או סלקציה מהירה
-            opp_choice = b_col2.selectbox("בחר קבוצה", all_league_teams, key=f"sel_team_{row['Player_ID']}", label_visibility="collapsed")
-            if b_col3.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
-                draft_player_to_db(row['Player'], opp_choice)
+            if b_col2.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
+                draft_player_to_db(row['Player'], f"Opponent Pick {st.session_state.my_current_pick}")
                 st.rerun()
                 
         st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
@@ -293,10 +286,16 @@ else:
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
         cols[i].metric(cat, 0.0, delta=0.0)
 
-# --- 5. Draft Grid (לוח דראפט ליגה מלא מסודר לפי בחירתך) ---
+# --- 5. Draft Grid (לוח דראפט ליגה מלא מסודר אוטומטית לפי סדר נחש) ---
 st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
 
-teams_order = all_league_teams
+# בניית שמות הקבוצות בצורה פשוטה לפי מספר הקבוצות בליגה
+teams_order = []
+for i in range(1, num_teams + 1):
+    if i == st.session_state.my_draft_position:
+        teams_order.append("My Team")
+    else:
+        teams_order.append(f"Team {i}")
 
 num_rounds = 13
 grid_data = []
@@ -313,7 +312,6 @@ for r in range(1, num_rounds + 1):
 skeleton_df = pd.DataFrame(grid_data)
 drafted_df = pd.read_sql('SELECT ds.Pick_Number, ds.Fantasy_Team, p.Full_Name FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID', conn)
 
-# מיפוי לפי מספר בחירה
 pick_to_player = dict(zip(drafted_df['Pick_Number'], drafted_df['Full_Name']))
 
 display_grid = skeleton_df.copy()
@@ -321,6 +319,7 @@ for r in range(1, num_rounds + 1):
     for t_name in teams_order:
         p_num = int(skeleton_df.loc[skeleton_df['סיבוב'] == r, t_name].values[0])
         player_name = pick_to_player.get(p_num, f"(בחירה {p_num})")
+        # אם השחקן שייך לקבוצה שלנו, נציג אותו. אם נבחר על ידי יריב, נציג את שמו תחת הטור הנכון או כ"נלקח"
         display_grid.loc[display_grid['סיבוב'] == r, t_name] = str(player_name)
 
 st.dataframe(display_grid, use_container_width=True, height=350)
