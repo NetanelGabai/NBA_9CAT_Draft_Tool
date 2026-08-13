@@ -5,6 +5,9 @@ import io
 
 st.set_page_config(page_title="Fantasy NBA Draft Tool", layout="wide")
 
+if 'my_draft_position' not in st.session_state:
+    st.session_state.my_draft_position = 1
+
 if 'my_current_pick' not in st.session_state:
     st.session_state.my_current_pick = 1
 
@@ -131,9 +134,15 @@ punt_tov = st.sidebar.checkbox("Punt TOV")
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ הגדרות דראפט (Snake)")
-num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=8)
+num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=12)
 
-st.sidebar.markdown(f"**הבחירה שלך בתור:** `{st.session_state.my_current_pick}`")
+# בחירת מספר הבחירה האישית שלך בהתחלה
+chosen_pos = st.sidebar.number_input("הבחירה שלך בסבב (Draft Position)", min_value=1, max_value=int(num_teams), value=st.session_state.get('my_draft_position', 1))
+if chosen_pos != st.session_state.my_draft_position:
+    st.session_state.my_draft_position = chosen_pos
+    st.session_state.my_current_pick = chosen_pos
+
+st.sidebar.markdown(f"**הבחירה שלך בתור כרגע:** `{st.session_state.my_current_pick}`")
 
 col_b1, col_b2, col_b3 = st.sidebar.columns(3)
 if col_b1.button("-1 בחירה"):
@@ -144,13 +153,13 @@ if col_b2.button("+1 בחירה"):
     st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
     st.rerun()
 if col_b3.button("איפוס מונה"):
-    st.session_state.my_current_pick = 1
+    st.session_state.my_current_pick = st.session_state.my_draft_position
     st.rerun()
 
 st.sidebar.markdown("---")
 if st.sidebar.button("אפס דראפט מלא"):
     cursor.execute('DELETE FROM Draft_State')
-    st.session_state.my_current_pick = 1
+    st.session_state.my_current_pick = st.session_state.my_draft_position
     conn.commit()
     st.rerun()
 
@@ -257,20 +266,40 @@ if not my_team_roster.empty:
 st.subheader("🟢 My Team Roster")
 st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# --- 4. Draft Grid (לוח דראפט ליגה מלא) ---
-st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
-all_teams = ["My Team"] + [f"Team {i}" for i in range(1, num_teams)]
-num_rounds = 13
+# --- 4. Team Needs & Fit (הועבר מעל הגריד) ---
+st.subheader("🧠 Team Needs & Fit")
+my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
+l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
+if not my_team_roster.empty:
+    cols = st.columns(7)
+    for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
+        cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * len(my_team_roster)), 1))
+else:
+    cols = st.columns(7)
+    for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
+        cols[i].metric(cat, 0.0, delta=0.0)
 
+# --- 5. Draft Grid (לוח דראפט ליגה מלא מותאם לפי בחירתך) ---
+st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
+
+# בניית רשימת הקבוצות לפי מיקום הבחירה שלך
+teams_order = []
+for i in range(1, num_teams + 1):
+    if i == st.session_state.my_draft_position:
+        teams_order.append("My Team")
+    else:
+        teams_order.append(f"Team {i}")
+
+num_rounds = 13
 grid_data = []
 for r in range(1, num_rounds + 1):
     row_dict = {"סיבוב": r}
-    for t_idx, t_name in enumerate(all_teams):
+    for t_idx, t_name in enumerate(teams_order):
         if r % 2 != 0:
             p = (r - 1) * num_teams + t_idx + 1
         else:
             p = (r - 1) * num_teams + (num_teams - t_idx)
-        row_dict[t_name] = str(p)  # המרה למחרוזת למניעת שגיאת טיפוס
+        row_dict[t_name] = str(p)
     grid_data.append(row_dict)
 
 skeleton_df = pd.DataFrame(grid_data)
@@ -279,21 +308,12 @@ pick_to_player = dict(zip(drafted_df['Pick_Number'], drafted_df['Full_Name']))
 
 display_grid = skeleton_df.copy()
 for r in range(1, num_rounds + 1):
-    for t_name in all_teams:
+    for t_name in teams_order:
         p_num = int(skeleton_df.loc[skeleton_df['סיבוב'] == r, t_name].values[0])
         player_name = pick_to_player.get(p_num, f"(בחירה {p_num})")
         display_grid.loc[display_grid['סיבוב'] == r, t_name] = str(player_name)
 
 st.dataframe(display_grid, use_container_width=True, height=350)
-
-# --- 5. Team Needs & Fit ---
-st.subheader("🧠 Team Needs & Fit")
-my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
-l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
-if not my_team_roster.empty:
-    cols = st.columns(7)
-    for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
-        cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * len(my_team_roster)), 1))
 
 # --- 6. Positional Heatmap ---
 st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
