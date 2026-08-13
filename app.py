@@ -262,6 +262,59 @@ if num_my_players > 0:
 df_board['Total_Value'] = df_board['Total_Value'] + ((df_board['PO_Games'] - 11) * 0.05)
 df_board['Total_Value'] = df_board['Total_Value'].round(2)
 
+# --- עיצוב CSS מתקדם לטבלה ולכפתורים ---
+st.markdown("""
+    <style>
+    /* טקסט נתונים רגיל */
+    .small-font {
+        font-size: 13px !important;
+        white-space: nowrap !important;
+        padding-top: 6px;
+        color: #f0f2f6;
+    }
+    
+    /* העלמת מסגרות מכפתורי הכותרות - מראה "מוקפא באקסל" טבעי לחלוטין */
+    section[data-testid="stMain"] button[kind="secondary"] {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        font-size: 12px !important;
+        font-weight: bold !important;
+        color: #9fb3c8 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    section[data-testid="stMain"] button[kind="secondary"]:hover {
+        color: #ffffff !important;
+        background-color: transparent !important;
+    }
+
+    /* עיצוב כפתור "נלקח" - קומפקטי ומשתלב בסביבה הכהה */
+    section[data-testid="stMain"] button[kind="primary"] {
+        background-color: #2b313e !important;
+        border: 1px solid #4c566a !important;
+        color: #ffffff !important;
+        padding: 0px 8px !important;
+        font-size: 12px !important;
+        min-height: 26px !important;
+        height: 26px !important;
+        border-radius: 4px !important;
+        line-height: 1 !important;
+    }
+    section[data-testid="stMain"] button[kind="primary"]:hover {
+        border-color: #e2e8f0 !important;
+        background-color: #4c566a !important;
+    }
+
+    /* צמצום המרווחים הענקיים בין העמודות למראה של טבלה רציפה */
+    [data-testid="column"] {
+        padding-left: 0.15rem !important;
+        padding-right: 0.15rem !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
 # --- 1. טבלת דירוג מלאה ראשית ---
 st.markdown("### 📋 טבלת דירוג מלאה (Z-Score Rankings)")
 search_query = st.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
@@ -271,38 +324,14 @@ if search_query:
     filtered_df = df_board[df_board['Player'].str.contains(search_query, case=False, na=False) | 
                            df_board['Team'].str.contains(search_query, case=False, na=False) | 
                            df_board['Position'].str.contains(search_query, case=False, na=False)]
+
+# סידור הטבלה לפי הכותרת שנבחרה
 df_sorted = filtered_df.sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
 
-# סגנון CSS מקטין פונט, מונע שבירת שורות ומקטין את כפתור הפעולה
-st.markdown("""
-    <style>
-    .small-font {
-        font-size: 12px !important;
-        white-space: nowrap !important;
-        padding-top: 4px;
-    }
-    /* הקטנת כפתורי פעולה וכותרות בטבלה */
-    div.stButton > button {
-        padding: 0px 8px !important;
-        font-size: 12px !important;
-        min-height: 24px !important;
-        height: 24px !important;
-        line-height: 1 !important;
-    }
-    /* מניעת שוליים ענקיים בין העמודות בשביל תצוגה מהודקת */
-    [data-testid="column"] {
-        padding-left: 0.2rem !important;
-        padding-right: 0.2rem !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# מבנה רוחב עמודות קבוע לטבלה ולכותרות (שים לב שהאחרון קטן יותר כי יש רק כפתור אחד)
+# חלוקת רוחב העמודות (קבועה עבור הכותרות והנתונים כדי לשמור על יישור)
 col_widths = [0.4, 1.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8]
 
-# -------------------------------------------------------------
-# כותרות צפות (Sticky Headers) - מחוץ לקונטיינר הנגלל
-# -------------------------------------------------------------
+# --- שורת כותרת "מוקפאת" למיון מחוץ לקונטיינר (כדי שתישאר תמיד בראש הטבלה) ---
 fh_cols = st.columns(col_widths)
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("ADP", "ADP"), 
@@ -314,31 +343,32 @@ headers_map = [
 for i, (label, sort_col) in enumerate(headers_map):
     with fh_cols[i]:
         if sort_col:
+            # אם העמודה הנוכחית היא זו שממוינת עכשיו, נוסיף לה חץ
             arrow = ""
             if st.session_state.sort_col_main == sort_col:
-                arrow = " ↑" if st.session_state.sort_asc_main else " ↓"
+                arrow = " ↓" if st.session_state.sort_asc_main else " ↑"
             
-            # כפתור מיון
-            if st.button(f"{label}{arrow}", key=f"sort_{sort_col}", use_container_width=True, help=f"מיין לפי {label}"):
+            # כפתור מיון לחיץ שנראה כמו טקסט רגיל (כי העלמנו לו את העיצוב ב-CSS)
+            if st.button(f"{label}{arrow}", key=f"sort_{sort_col}", use_container_width=True):
+                # אם לחץ שוב על אותה עמודה - הפוך סדר. אחרת, מיין לפי העמודה החדשה.
                 if st.session_state.sort_col_main == sort_col:
                     st.session_state.sort_asc_main = not st.session_state.sort_asc_main
                 else:
                     st.session_state.sort_col_main = sort_col
-                    # ADP נמוך זה טוב (עולה), השאר גבוה זה טוב (יורד)
+                    # ב-ADP ציון נמוך זה עולה, בכל השאר ציון גבוה זה יורד
                     st.session_state.sort_asc_main = True if sort_col == 'ADP' else False
                 st.rerun()
         else:
-            st.markdown(f"<div class='small-font'><b>{label}</b></div>", unsafe_allow_html=True)
+            # עמודות ללא מיון (כמו מס"ד או כפתור פעולה)
+            st.markdown(f"<div style='font-size:12px; font-weight:bold; color:#9fb3c8; padding-top:4px; text-align:center;'>{label}</div>", unsafe_allow_html=True)
             
 st.markdown("<hr style='margin: 0px 0 5px 0; opacity: 0.3;'>", unsafe_allow_html=True)
 
-# -------------------------------------------------------------
-# גוף הטבלה - בתוך קונטיינר נגלל
-# -------------------------------------------------------------
-with st.container(height=420):
+# --- גוף הטבלה נגלל בתוך ה-Container ---
+with st.container(height=450):
     for idx, row in df_sorted.head(100).reset_index().iterrows():
         r_cols = st.columns(col_widths)
-        r_cols[0].markdown(f"<div class='small-font'>{idx + 1}</div>", unsafe_allow_html=True)
+        r_cols[0].markdown(f"<div class='small-font' style='text-align:center;'>{idx + 1}</div>", unsafe_allow_html=True)
         r_cols[1].markdown(f"<div class='small-font'>{row['Player']} ({row['Team']})</div>", unsafe_allow_html=True)
         r_cols[2].markdown(f"<div class='small-font'>{row['Position']}</div>", unsafe_allow_html=True)
         r_cols[3].markdown(f"<div class='small-font'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
@@ -355,11 +385,13 @@ with st.container(height=420):
         r_cols[14].markdown(f"<div class='small-font'>{row['zFT']}</div>", unsafe_allow_html=True)
         
         with r_cols[15]:
-            if st.button("נלקח", key=f"taken_{row['Player_ID']}", use_container_width=True):
+            # כפתור "נלקח" בסטייל Primary שכופפנו ב-CSS
+            if st.button("נלקח", key=f"taken_{row['Player_ID']}", use_container_width=True, type="primary"):
                 draft_player_to_db(row['Player'], current_picking_team)
                 st.rerun()
                 
         st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
+
 
 # --- 2. סלוטים נדרשים בסגל ---
 my_team_roster = pd.read_sql('SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team" ORDER BY ds.Pick_Number', conn)
