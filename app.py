@@ -233,7 +233,7 @@ with st.container(height=450):
         r_cols[1].markdown(f"<div class='small-font left-text'>{row['Player']} ({row['Team']})</div>", unsafe_allow_html=True)
         r_cols[2].markdown(f"<div class='small-font center-text'>{row['Position']}</div>", unsafe_allow_html=True)
         r_cols[3].markdown(f"<div class='small-font center-text'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
-        r_cols[4].markdown(f"<div class='small-font center-text'>{row['Survive']}</div>", unsafe_allow_html=True) # עמודת סטטוס חדשה
+        r_cols[4].markdown(f"<div class='small-font center-text'>{row['Survive']}</div>", unsafe_allow_html=True) 
         r_cols[5].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
         r_cols[6].markdown(f"<div class='small-font center-text'><b>{row['Total_Value']:.2f}</b></div>", unsafe_allow_html=True)
         r_cols[7].markdown(f"<div class='small-font center-text'>{row['zPTS']}</div>", unsafe_allow_html=True)
@@ -263,7 +263,8 @@ team_totals_query = '''
 '''
 df_teams = pd.read_sql(team_totals_query, conn)
 if not df_teams.empty:
-    st.dataframe(df_teams, use_container_width=True, hide_index=True)
+    # השינוי כאן: use_container_width=False כדי שהטבלה לא תימתח על פני כל המסך
+    st.dataframe(df_teams, use_container_width=False, hide_index=True)
 else:
     st.info("הטבלה תתעדכן ברגע שיתחילו להיבחר שחקנים בדראפט.")
 
@@ -288,7 +289,7 @@ if not my_team_roster.empty:
 
 # --- 4. רוסטר הקבוצה שלך ---
 st.subheader("🟢 My Team Roster")
-st.dataframe(my_team_roster, use_container_width=True, height=200, hide_index=True)
+st.dataframe(my_team_roster, use_container_width=False, hide_index=True)
 
 # --- 5. Team Needs & Fit ---
 st.subheader("🧠 Team Needs & Fit")
