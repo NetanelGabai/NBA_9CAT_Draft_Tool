@@ -215,10 +215,8 @@ st.dataframe(my_team_roster, use_container_width=True, height=200)
 # הצגת ניהול עמדות (סלוטים נדרשים מול מה שנבחר)
 if not my_team_roster.empty:
     st.markdown("##### 📌 מעקב סלוטים בסגל (מתוך מבנה 13 שחקנים: PG, SG, G, SF, PF, F, C, 3xUtil, 3xBN)")
-    pos_counts = my_team_roster['Position'].value_codes if 'Position' in my_team_roster else {}
-    # הצגת סיכום עמדות מהיר בסגל
     slot_col1, slot_col2, slot_col3, slot_col4, slot_col5 = st.columns(5)
-    slot_col1.metric("סה"כ שחקנים", len(my_team_roster), "מתוך 13")
+    slot_col1.metric('סה"כ שחקנים', len(my_team_roster), "מתוך 13")
     slot_col2.metric("Guard (PG/SG/G)", len(my_team_roster[my_team_roster['Position'].str.contains('PG|SG|G', case=False, na=False)]))
     slot_col3.metric("Forward (SF/PF/F)", len(my_team_roster[my_team_roster['Position'].str.contains('SF|PF|F', case=False, na=False)]))
     slot_col4.metric("Center (C)", len(my_team_roster[my_team_roster['Position'].str.contains('C', case=False, na=False)]))
