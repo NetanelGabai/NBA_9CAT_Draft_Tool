@@ -9,95 +9,44 @@ st.set_page_config(page_title="Fantasy NBA Draft Tool", page_icon="🏀", layout
 # --- CSS פרימיום מותאם אישית ---
 st.markdown("""
     <style>
-    /* רקע כהה עשיר יותר במקום השחור/אפור הדיפולטי */
-    .stApp {
-        background-color: #0e1117;
-    }
-    
-    /* הסתרת התפריט העליון והפוטר של סטריםליט למראה אפליקציה עצמאית */
+    .stApp { background-color: #0e1117; }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-
-    /* טיפוגרפיה וטקסטים לטבלאות */
     .small-font { font-size: 13px !important; white-space: nowrap !important; padding-top: 6px; color: #e2e8f0; }
     .player-name { font-weight: 600; color: #ffffff; font-size: 14px; }
     .player-meta { color: #718096; font-size: 11px; margin-left: 5px; }
     .total-value { font-weight: 800; color: #ecc94b; font-size: 14px; }
-    
-    /* מירכוז מושלם */
     .center-text { text-align: center; } 
     .left-text { text-align: left; }
-
-    /* הקפאת שורת הכותרת עם עיצוב זכוכית עדין (Glassmorphism) */
     div[data-testid="stScrollableContainer"] > div > div:first-child { 
-        position: sticky !important; 
-        top: 0 !important; 
-        z-index: 100 !important; 
-        background: rgba(14, 17, 23, 0.95) !important;
-        backdrop-filter: blur(5px);
+        position: sticky !important; top: 0 !important; z-index: 100 !important; 
+        background: rgba(14, 17, 23, 0.95) !important; backdrop-filter: blur(5px);
         border-bottom: 1px solid rgba(255,255,255,0.1) !important; 
-        padding-top: 5px !important; 
-        padding-bottom: 5px !important; 
+        padding-top: 5px !important; padding-bottom: 5px !important; 
     }
-    
-    /* כפתורי הכותרות - נקיים ואלגנטיים */
     section[data-testid="stMain"] button[kind="secondary"] { 
-        background-color: transparent !important; 
-        border: none !important; 
-        box-shadow: none !important; 
-        font-size: 12px !important; 
-        font-weight: 700 !important; 
-        color: #a0aec0 !important; 
-        padding: 0 !important; 
-        margin: 0 !important; 
-        justify-content: center !important; 
-        transition: color 0.2s ease;
+        background-color: transparent !important; border: none !important; box-shadow: none !important; 
+        font-size: 12px !important; font-weight: 700 !important; color: #a0aec0 !important; 
+        padding: 0 !important; margin: 0 !important; justify-content: center !important; transition: color 0.2s ease;
     }
     section[data-testid="stMain"] button[kind="secondary"]:hover { color: #ffffff !important; background-color: transparent !important; }
-
-    /* כפתורי פעולה (Action Buttons) - מודרניים */
     section[data-testid="stMain"] button[kind="primary"] { 
-        background-color: #2d3748 !important; 
-        border: 1px solid #4a5568 !important; 
-        color: #e2e8f0 !important; 
-        padding: 0px 10px !important; 
-        font-size: 12px !important; 
-        font-weight: 600 !important;
-        min-height: 26px !important; 
-        height: 26px !important; 
-        border-radius: 6px !important; 
-        line-height: 1 !important; 
-        transition: all 0.2s ease;
+        background-color: #2d3748 !important; border: 1px solid #4a5568 !important; color: #e2e8f0 !important; 
+        padding: 0px 10px !important; font-size: 12px !important; font-weight: 600 !important;
+        min-height: 26px !important; height: 26px !important; border-radius: 6px !important; 
+        line-height: 1 !important; transition: all 0.2s ease;
     }
-    section[data-testid="stMain"] button[kind="primary"]:hover { 
-        border-color: #cbd5e0 !important; 
-        background-color: #4a5568 !important; 
-        color: #ffffff !important;
-    }
-
-    /* תיקון שוליים פנימיים בעמודות ליצירת רצף טבלאי */
+    section[data-testid="stMain"] button[kind="primary"]:hover { border-color: #cbd5e0 !important; background-color: #4a5568 !important; color: #ffffff !important; }
     [data-testid="column"] { padding-left: 0.15rem !important; padding-right: 0.15rem !important; }
-    
-    /* פאנלים אינפורמטיביים (Dashboards) */
-    .dash-card {
-        background-color: #1a202c;
-        border: 1px solid #2d3748;
-        border-radius: 8px;
-        padding: 15px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
+    .dash-card { background-color: #1a202c; border: 1px solid #2d3748; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
     </style>
 """, unsafe_allow_html=True)
 
-# פונקציית צביעה חכמה ל-Z-Scores
-def color_z_score(val, reverse_colors=False):
+# פונקציית צביעה חכמה ל-Z-Scores (תוקנה: הוסר ההיפוך השגוי ל-TOV)
+def color_z_score(val):
     try:
         v = float(val)
-        if reverse_colors:  # לשימוש בקטגוריית איבודים (TOV), שם גבוה זה רע
-            v = -v
-            
         if v >= 1.5: return f"<span style='color: #48bb78; font-weight: bold;'>{val}</span>"
         elif v >= 0.5: return f"<span style='color: #9ae6b4;'>{val}</span>"
         elif v <= -1.5: return f"<span style='color: #f56565; font-weight: bold;'>{val}</span>"
@@ -335,7 +284,7 @@ if not wl_df.empty:
             r_cols[10].markdown(f"<div class='small-font center-text'>{color_z_score(row['zSTL'])}</div>", unsafe_allow_html=True)
             r_cols[11].markdown(f"<div class='small-font center-text'>{color_z_score(row['zBLK'])}</div>", unsafe_allow_html=True)
             r_cols[12].markdown(f"<div class='small-font center-text'>{color_z_score(row['z3PM'])}</div>", unsafe_allow_html=True)
-            r_cols[13].markdown(f"<div class='small-font center-text'>{color_z_score(row['zTOV'], True)}</div>", unsafe_allow_html=True) # חריג: איבודים
+            r_cols[13].markdown(f"<div class='small-font center-text'>{color_z_score(row['zTOV'])}</div>", unsafe_allow_html=True) 
             r_cols[14].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFG'])}</div>", unsafe_allow_html=True)
             r_cols[15].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFT'])}</div>", unsafe_allow_html=True)
             with r_cols[16]:
@@ -386,7 +335,7 @@ with st.container(height=500):
         r_cols[10].markdown(f"<div class='small-font center-text'>{color_z_score(row['zSTL'])}</div>", unsafe_allow_html=True)
         r_cols[11].markdown(f"<div class='small-font center-text'>{color_z_score(row['zBLK'])}</div>", unsafe_allow_html=True)
         r_cols[12].markdown(f"<div class='small-font center-text'>{color_z_score(row['z3PM'])}</div>", unsafe_allow_html=True)
-        r_cols[13].markdown(f"<div class='small-font center-text'>{color_z_score(row['zTOV'], True)}</div>", unsafe_allow_html=True)
+        r_cols[13].markdown(f"<div class='small-font center-text'>{color_z_score(row['zTOV'])}</div>", unsafe_allow_html=True)
         r_cols[14].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFG'])}</div>", unsafe_allow_html=True)
         r_cols[15].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFT'])}</div>", unsafe_allow_html=True)
         with r_cols[16]:
@@ -404,10 +353,10 @@ with st.container(height=500):
 
 st.markdown("---")
 
-# --- DASHboard: חצי עליון (צרכים וכוח בליגה) ---
-dash_col1, dash_col2 = st.columns([6, 4])
+# --- DASHBOARD LAYOUT (2 Columns) ---
+dash_left, dash_right = st.columns([5, 6])
 
-with dash_col1:
+with dash_left:
     st.markdown("#### 🧠 הצרכים של הקבוצה שלי (Team Fit)")
     my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
     l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
@@ -429,27 +378,8 @@ with dash_col1:
     needs_html += "</div>"
     st.markdown(needs_html, unsafe_allow_html=True)
 
-with dash_col2:
-    st.markdown("#### ⚔️ יחסי כוחות (Live H2H)")
-    team_totals_query = '''
-        SELECT ds.Fantasy_Team as "Team", COUNT(ds.Player_ID) as "Plyrs",
-               ROUND(SUM(pr.PTS), 1) as PTS, ROUND(SUM(pr.REB), 1) as REB, ROUND(SUM(pr.AST), 1) as AST, 
-               ROUND(SUM(pr.STL), 1) as STL, ROUND(SUM(pr.BLK), 1) as BLK, ROUND(SUM(pr.Three_PM), 1) as "3PM", 
-               ROUND(SUM(pr.TOV), 1) as TOV
-        FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID GROUP BY ds.Fantasy_Team
-    '''
-    df_teams = pd.read_sql(team_totals_query, conn)
-    if not df_teams.empty:
-        st.dataframe(df_teams, use_container_width=True, hide_index=True)
-    else:
-        st.markdown("<div style='background-color: #1a202c; padding: 20px; border-radius: 8px; border: 1px dashed #2d3748; color: #718096; text-align: center; font-size: 13px;'>ממתין לבחירות ראשונות...</div>", unsafe_allow_html=True)
-
-# --- DASHboard: חצי תחתון (רוסטר והיטמאפ) ---
-bottom_col1, bottom_col2 = st.columns([4, 6])
-
-with bottom_col1:
+    st.markdown("<br>#### 🟢 הקבוצה שלי", unsafe_allow_html=True)
     my_team_roster = pd.read_sql('SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team" ORDER BY ds.Pick_Number', conn)
-    st.markdown("#### 🟢 הקבוצה שלי")
     if not my_team_roster.empty:
         st.dataframe(my_team_roster, use_container_width=True, hide_index=True)
         
@@ -466,6 +396,7 @@ with bottom_col1:
         while unassigned and counts['UTIL'] < 3: counts['UTIL'] += 1; unassigned.pop(0)
         while unassigned: counts['BN'] += 1; unassigned.pop(0)
         
+        st.markdown("##### 📌 סטטוס סלוטים בסגל")
         slots_html = f"""
         <div class="dash-card" style="display: flex; gap: 10px; flex-wrap: wrap;">
             <div style="text-align: center; flex: 1;"><div style="font-size: 11px; color: #a0aec0; font-weight:bold;">PG</div><div style="font-size: 14px; font-weight: bold; color: {'#48bb78' if counts['PG']>=1 else '#e2e8f0'};">{counts['PG']}/1</div></div>
@@ -483,8 +414,35 @@ with bottom_col1:
     else:
         st.markdown("<div style='background-color: #1a202c; padding: 20px; border-radius: 8px; border: 1px dashed #2d3748; color: #718096; text-align: center; font-size: 13px;'>סגל ריק. בחר שחקן כדי להתחיל.</div>", unsafe_allow_html=True)
 
-with bottom_col2:
-    st.markdown("#### 📍 מאגר שחקנים מול ביקוש (Heatmap)")
+
+with dash_right:
+    st.markdown("#### ⚔️ יחסי כוחות בליגה (Live H2H)")
+    team_totals_query = '''
+        SELECT ds.Fantasy_Team as "Team", COUNT(ds.Player_ID) as "Plyrs",
+               ROUND(SUM(pr.PTS), 1) as PTS, ROUND(SUM(pr.REB), 1) as REB, ROUND(SUM(pr.AST), 1) as AST, 
+               ROUND(SUM(pr.STL), 1) as STL, ROUND(SUM(pr.BLK), 1) as BLK, ROUND(SUM(pr.Three_PM), 1) as "3PM", 
+               ROUND(SUM(pr.TOV), 1) as TOV
+        FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID GROUP BY ds.Fantasy_Team
+    '''
+    df_teams_actual = pd.read_sql(team_totals_query, conn)
+    
+    # הבטחת 12 שורות קבועות תמיד (לפי מס' הקבוצות)
+    all_teams_list = ["My Team"] + [f"Team {i}" for i in range(1, int(num_teams) + 1) if i != st.session_state.my_draft_position]
+    base_teams_df = pd.DataFrame({"Team": all_teams_list})
+    
+    if not df_teams_actual.empty:
+        df_h2h = pd.merge(base_teams_df, df_teams_actual, on="Team", how="left").fillna(0)
+    else:
+        df_h2h = base_teams_df.copy()
+        for cat in ["Plyrs", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TOV"]:
+            df_h2h[cat] = 0
+            
+    df_h2h['Plyrs'] = df_h2h['Plyrs'].astype(int)
+    df_h2h = df_h2h.sort_values(by="PTS", ascending=False)
+    
+    st.dataframe(df_h2h, use_container_width=True, hide_index=True)
+
+    st.markdown("<br>#### 📍 מאגר שחקנים מול ביקוש (Heatmap)", unsafe_allow_html=True)
     heatmap_query = f'''
         WITH Available AS (SELECT Position FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)),
         TotalAvail AS (SELECT COUNT(*) as cnt FROM Available),
