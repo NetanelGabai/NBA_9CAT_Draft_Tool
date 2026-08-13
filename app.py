@@ -94,9 +94,9 @@ conn.commit()
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) // T) + 1
+        s = ((current_p - 1) % T) + 1
     else:
-        s = T - ((current_p - 1) // T)
+        s = T - ((current_p - 1) % T)
     
     next_R = R + 1
     if next_R % 2 != 0:
@@ -216,7 +216,6 @@ st.dataframe(my_team_roster, use_container_width=True, height=200)
 if not my_team_roster.empty:
     st.markdown("##### 📌 סלוטים נדרשים בסגל")
     
-    # חישוב איוש עמדות בפועל מול דרישה
     player_pool = []
     for idx, row in my_team_roster.iterrows():
         pos_list = [p.strip().upper() for p in str(row['Position']).split(',')]
@@ -225,7 +224,6 @@ if not my_team_roster.empty:
     unassigned = player_pool.copy()
     counts = {'PG': 0, 'SG': 0, 'SF': 0, 'PF': 0, 'C': 0, 'G': 0, 'F': 0, 'UTIL': 0, 'BN': 0}
     
-    # חלוקה חכמה לסלוטים חובה
     for s_pos in ['PG', 'SG', 'SF', 'PF', 'C']:
         found_idx = -1
         for i, p_pos in enumerate(unassigned):
@@ -236,31 +234,26 @@ if not my_team_roster.empty:
             counts[s_pos] += 1
             unassigned.pop(found_idx)
             
-    # G Flex
     for i, p_pos in enumerate(unassigned):
         if 'PG' in p_pos or 'SG' in p_pos or 'G' in p_pos:
             counts['G'] += 1
             unassigned.pop(i)
             break
             
-    # F Flex
     for i, p_pos in enumerate(unassigned):
         if 'SF' in p_pos or 'PF' in p_pos or 'F' in p_pos:
             counts['F'] += 1
             unassigned.pop(i)
             break
             
-    # Util (עד 3)
     while unassigned and counts['UTIL'] < 3:
         counts['UTIL'] += 1
         unassigned.pop(0)
         
-    # BN (השאר)
     while unassigned:
         counts['BN'] += 1
         unassigned.pop(0)
 
-    # הצגה בעיצוב קומפקטי של מספר נבחר / דרישה (למשל 1/1 או 3/0)
     scol1, scol2, scol3, scol4, scol5, scol6, scol7, scol8 = st.columns(8)
     scol1.metric("PG", f"1/{counts['PG']}")
     scol2.metric("SG", f"1/{counts['SG']}")
@@ -273,7 +266,7 @@ if not my_team_roster.empty:
 
 st.subheader("🧠 Team Needs & Fit")
 my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
-l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as AVG_TOV FROM Projections", conn).iloc[0]
+l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
 
 num_players = conn.execute("SELECT COUNT(*) FROM Draft_State WHERE Fantasy_Team = 'My Team'").fetchone()[0]
 if num_players > 0:
