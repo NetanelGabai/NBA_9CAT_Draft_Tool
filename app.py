@@ -199,37 +199,80 @@ st.dataframe(my_team_df, use_container_width=True, height=200)
 
 # --- המשך קוד app.py ---
 
-# פונקציה לניתוח צרכי הקבוצה בזמן אמת
+# --- פונקציית ניתוח צרכי הקבוצה המעודכנת (כל 9 הקטגוריות + פערים מול הליגה) ---
 def display_team_needs(conn):
-    st.subheader("🧠 Team Needs & Fit Analysis")
+    st.subheader("🧠 Team Needs & Fit Analysis (All 9 Categories)")
     
-    # נתונים של הקבוצה שלי
+    # 1. בדיקה כמה שחקנים בחרת
+    num_players = pd.read_sql("SELECT COUNT(*) FROM Draft_State WHERE Fantasy_Team = 'My Team'", conn).iloc[0,0]
+    
+    if num_players == 0:
+        st.info("עדיין לא בחרת שחקנים לקבוצה שלך. בחר שחקנים בתפריט הצד כדי לראות את ניתוח הצרכים.")
+        return
+
+    # 2. שליפת סיכום הנתונים של הקבוצה שלך
     my_team_stats = pd.read_sql('''
-        SELECT SUM(pr.PTS) as PTS, SUM(pr.REB) as REB, SUM(pr.AST) as AST, 
-               SUM(pr.STL) as STL, SUM(pr.BLK) as BLK, SUM(pr.Three_PM) as Three_PM
+        SELECT 
+            SUM(pr.PTS) as PTS, SUM(pr.REB) as REB, SUM(pr.AST) as AST, 
+            SUM(pr.STL) as STL, SUM(pr.BLK) as BLK, SUM(pr.Three_PM) as Three_PM,
+            SUM(pr.TOV) as TOV, SUM(pr.FG_Made) as FG_Made, SUM(pr.FG_Att) as FG_Att,
+            SUM(pr.FT_Made) as FT_Made, SUM(pr.FT_Att) as FT_Att
         FROM Draft_State ds
         JOIN Projections pr ON ds.Player_ID = pr.Player_ID
         WHERE ds.Fantasy_Team = 'My Team'
-    ''', conn)
-    
-    # חישוב ממוצע ליגה למספר השחקנים שנבחרו (הערכה)
-    num_players = pd.read_sql("SELECT COUNT(*) FROM Draft_State WHERE Fantasy_Team = 'My Team'", conn).iloc[0,0]
-    
-    if num_players > 0:
-        # כאן אנחנו משווים את סך הקטגוריות שלך לממוצע הליגה המצופה עבור מספר השחקנים שיש לך
-        # זה נותן לך אינדיקציה אם אתה מעל או מתחת לממוצע בכל קטגוריה
-        st.write(f"רוסטר נוכחי: {num_players} שחקנים.")
-        
-        # תצוגת מדדים (צבע ירוק לחיזוק, אדום לחולשה)
-        cols = st.columns(6)
-        metrics = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM']
-        
-        for i, metric in enumerate(metrics):
-            val = my_team_stats[metric].iloc[0]
-            # זהו חישוב פשוט - אפשר לשכלל אותו מול ממוצע הליגה
-            cols[i].metric(label=metric, value=round(val, 1))
-    else:
-        st.info("עדיין לא בחרת שחקנים לקבוצה שלך.")
+    ''', conn).iloc[0]
 
-# קרא לפונקציה הזו אחרי הצגת הלוח
+    # 3. שליפת ממוצעי הליגה לשחקן (מתוך פול השחקנים הרלוונטיים)
+    league_avgs = pd.read_sql('''
+        SELECT 
+            AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, 
+            AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM,
+            AVG(TOV) as TOV, SUM(FG_Made)/SUM(FG_Att) as FG_Pct, SUM(FT_Made)/SUM(FT_Att) as FT_Pct
+        FROM Players p JOIN Projections pr ON p.Player_ID = pr.Player_ID
+        WHERE pr.MIN > 15 AND pr.Games_Played > 10
+    ''', conn).iloc[0]
+
+    st.write(f"🟢 רוסטר נוכחי: **{num_players} שחקנים** | השוואה לממוצע הליגה המצופה לגודל סגל זה:")
+
+    # חישוב ערכים בפועל מול צפוי (Expected = ממוצע שחקן בליגה * מספר השחקנים בסגל שלך)
+    cat_names = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']
+    
+    cols = st.columns(9)
+    
+    # הצגת 6 הקטגוריות הליניאריות הראשונות + איבודים
+    for i, cat in enumerate(cat_names):
+        actual = my_team_stats[cat]
+        expected = league_avgs[cat] * num_players
+        diff = actual - expected  # הפער מול ממוצע הליגה
+        
+        # באיבודים (TOV) פחות זה יותר טוב, לכן הופכים את המשמעות של הפער
+        delta_color = "normal" if cat != 'TOV' else "inverse"
+        
+        cols[i].metric(
+            label=cat, 
+            value=round(actual, 1), 
+            delta=f"{round(diff, 1)} vs Lg Avg",
+            delta_color="inverse" if cat == 'TOV' else "normal"
+        )
+
+    # חישוב אחוזים (FG% ו-FT%)
+    my_fg_pct = (my_team_stats['FG_Made'] / my_team_stats['FG_Att']) if my_team_stats['FG_Att'] > 0 else 0
+    my_ft_pct = (my_team_stats['FT_Made'] / my_team_stats['FT_Att']) if my_team_stats['FT_Att'] > 0 else 0
+    
+    fg_diff = (my_fg_pct - league_avgs['FG_Pct']) * 100
+    ft_diff = (my_ft_pct - league_avgs['FT_Pct']) * 100
+
+    cols[7].metric(
+        label="FG%", 
+        value=f"{round(my_fg_pct * 100, 1)}%", 
+        delta=f"{round(fg_diff, 1)}%"
+    )
+    
+    cols[8].metric(
+        label="FT%", 
+        value=f"{round(my_ft_pct * 100, 1)}%", 
+        delta=f"{round(ft_diff, 1)}%"
+    )
+
+# קריאה לפונקציה בתחתית קובץ ה-app.py שלך
 display_team_needs(conn)
