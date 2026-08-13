@@ -17,10 +17,12 @@ TEAM_NAME_TO_ABBR = {
     'SAN ANTONIO SPURS': 'SAS', 'TORONTO RAPTORS': 'TOR', 'UTAH JAZZ': 'UTA', 'WASHINGTON WIZARDS': 'WAS'
 }
 
+# --- אתחול משתני סשן ---
 if 'my_draft_position' not in st.session_state: st.session_state.my_draft_position = 1
 if 'global_pick' not in st.session_state: st.session_state.global_pick = 1
 if 'sort_col_main' not in st.session_state: st.session_state.sort_col_main = 'Total_Value'
 if 'sort_asc_main' not in st.session_state: st.session_state.sort_asc_main = False
+if 'watchlist' not in st.session_state: st.session_state.watchlist = []
 
 @st.cache_resource
 def setup_database():
@@ -59,9 +61,12 @@ def get_team_for_pick(p, T, my_pos):
     pos = ((p - 1) % T) + 1 if R % 2 != 0 else T - ((p - 1) % T)
     return "My Team" if pos == my_pos else f"Team {pos}"
 
-def draft_player_to_db(player_name, team_name):
+# הפונקציה שודרגה כדי להסיר אוטומטית מרשימת המעקב שחקן שנלקח
+def draft_player_to_db(player_name, team_name, player_id):
     cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (team_name, int(st.session_state.global_pick), player_name))
     conn.commit()
+    if player_id in st.session_state.watchlist:
+        st.session_state.watchlist.remove(player_id)
     st.session_state.global_pick += 1
 
 # --- UI Sidebar ---
@@ -107,7 +112,7 @@ st.sidebar.markdown(f"**בחירה נוכחית:** `{st.session_state.global_pic
 col_b1, col_b2, col_b3 = st.sidebar.columns(3)
 if col_b1.button("-1 בחירה") and st.session_state.global_pick > 1: st.session_state.global_pick -= 1; st.rerun()
 if col_b2.button("+1 בחירה"): st.session_state.global_pick += 1; st.rerun()
-if col_b3.button("איפוס"): cursor.execute('DELETE FROM Draft_State'); st.session_state.global_pick = 1; conn.commit(); st.rerun()
+if col_b3.button("איפוס"): cursor.execute('DELETE FROM Draft_State'); st.session_state.global_pick = 1; st.session_state.watchlist = []; conn.commit(); st.rerun()
 
 my_future_picks = []
 for r in range(1, 16):
@@ -152,7 +157,6 @@ SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Valu
 df_board = pd.read_sql(query, conn)
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
-# --- Survive Prob ---
 def get_survive_status(adp):
     buffer = adp - next_my_pick
     if buffer >= 10: return "🟢"
@@ -196,7 +200,7 @@ st.markdown("""
     .small-font { font-size: 13px !important; white-space: nowrap !important; padding-top: 6px; color: #f0f2f6; }
     .center-text { text-align: center; } .left-text { text-align: left; }
     div[data-testid="stScrollableContainer"] > div > div:first-child { position: sticky !important; top: 0 !important; z-index: 100 !important; background-color: var(--background-color) !important; border-bottom: 1px solid rgba(255,255,255,0.15) !important; padding-top: 5px !important; padding-bottom: 5px !important; }
-    section[data-testid="stMain"] button[kind="secondary"] { background-color: transparent !important; border: none !important; box-shadow: none !important; font-size: 12px !important; font-weight: bold !important; color: #9fb3c8 !important; padding: 0 !important; margin: 0 !important; justify-content: center !important; }
+    section[data-testid="stMain"] button[kind="secondary"] { background-color: transparent !important; border: none !important; box-shadow: none !important; font-size: 13px !important; font-weight: bold !important; color: #9fb3c8 !important; padding: 0 !important; margin: 0 !important; justify-content: center !important; }
     section[data-testid="stMain"] button[kind="secondary"]:hover { color: #ffffff !important; background-color: transparent !important; }
     section[data-testid="stMain"] button[kind="primary"] { background-color: #2b313e !important; border: 1px solid #4c566a !important; color: #ffffff !important; padding: 0px 8px !important; font-size: 12px !important; min-height: 26px !important; height: 26px !important; border-radius: 4px !important; line-height: 1 !important; }
     section[data-testid="stMain"] button[kind="primary"]:hover { border-color: #e2e8f0 !important; background-color: #4c566a !important; }
@@ -204,14 +208,60 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Main Table ---
+
+col_widths = [0.4, 1.8, 0.6, 0.5, 0.8, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 1.2]
+headers_map = [("#", None), ("שחקן", "Player"), ("POS", "Position"), ("ADP", "ADP"), ("סטטוס", "Survive"), ("PO", "PO_Games"), ("Z", "Total_Value"), ("PTS", "zPTS"), ("REB", "zREB"), ("AST", "zAST"), ("STL", "zSTL"), ("BLK", "zBLK"), ("3PM", "z3PM"), ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)]
+
+
+# --- WATCHLIST SECTION ---
+st.markdown("### ⭐ רשימת מעקב (Targets)")
+wl_df = df_board[df_board['Player_ID'].isin(st.session_state.watchlist)].sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
+
+if not wl_df.empty:
+    container_height = min(250, max(120, len(wl_df) * 45 + 50))
+    with st.container(height=container_height):
+        fh_cols_wl = st.columns(col_widths)
+        for i, (label, sort_col) in enumerate(headers_map):
+            with fh_cols_wl[i]:
+                st.markdown(f"<div style='font-size:12px; font-weight:bold; color:#e5c07b; padding-top:4px; text-align:center;'>{label}</div>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin: 0px 0 5px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+        
+        for idx, row in wl_df.reset_index().iterrows():
+            r_cols = st.columns(col_widths)
+            r_cols[0].markdown(f"<div class='small-font center-text'>{idx + 1}</div>", unsafe_allow_html=True)
+            r_cols[1].markdown(f"<div class='small-font left-text'>{row['Player']}</div>", unsafe_allow_html=True)
+            r_cols[2].markdown(f"<div class='small-font center-text'>{row['Position']}</div>", unsafe_allow_html=True)
+            r_cols[3].markdown(f"<div class='small-font center-text'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
+            r_cols[4].markdown(f"<div class='small-font center-text'>{row['Survive']}</div>", unsafe_allow_html=True) 
+            r_cols[5].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
+            r_cols[6].markdown(f"<div class='small-font center-text' style='color:#e5c07b;'><b>{row['Total_Value']:.2f}</b></div>", unsafe_allow_html=True)
+            r_cols[7].markdown(f"<div class='small-font center-text'>{row['zPTS']}</div>", unsafe_allow_html=True)
+            r_cols[8].markdown(f"<div class='small-font center-text'>{row['zREB']}</div>", unsafe_allow_html=True)
+            r_cols[9].markdown(f"<div class='small-font center-text'>{row['zAST']}</div>", unsafe_allow_html=True)
+            r_cols[10].markdown(f"<div class='small-font center-text'>{row['zSTL']}</div>", unsafe_allow_html=True)
+            r_cols[11].markdown(f"<div class='small-font center-text'>{row['zBLK']}</div>", unsafe_allow_html=True)
+            r_cols[12].markdown(f"<div class='small-font center-text'>{row['z3PM']}</div>", unsafe_allow_html=True)
+            r_cols[13].markdown(f"<div class='small-font center-text'>{row['zFG']}</div>", unsafe_allow_html=True)
+            r_cols[14].markdown(f"<div class='small-font center-text'>{row['zFT']}</div>", unsafe_allow_html=True)
+            with r_cols[16]:
+                c1, c2 = st.columns([1, 1.5])
+                if c1.button("❌", key=f"wl_rm_{row['Player_ID']}", use_container_width=True):
+                    st.session_state.watchlist.remove(row['Player_ID'])
+                    st.rerun()
+                if c2.button("נלקח", key=f"wl_taken_{row['Player_ID']}", use_container_width=True, type="primary"):
+                    draft_player_to_db(row['Player'], current_picking_team, row['Player_ID'])
+                    st.rerun()
+            st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
+else:
+    st.info("הרשימה ריקה. הוסף שחקנים מהטבלה למטה בעזרת כפתור ה-☆ כדי לעקוב אחריהם בקלות.")
+
+
+# --- MAIN TABLE ---
+st.markdown("---")
 st.markdown(f"### 📋 לוח דירוג חכם (תור נוכחי: {st.session_state.global_pick} | התור הבא שלך: {next_my_pick})")
 search_query = st.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
 filtered_df = df_board[df_board['Player'].str.contains(search_query, case=False) | df_board['Team'].str.contains(search_query, case=False) | df_board['Position'].str.contains(search_query, case=False)] if search_query else df_board
 df_sorted = filtered_df.sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
-
-col_widths = [0.4, 1.8, 0.6, 0.5, 0.8, 0.5, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8]
-headers_map = [("#", None), ("שחקן", "Player"), ("POS", "Position"), ("ADP", "ADP"), ("סטטוס", "Survive"), ("PO", "PO_Games"), ("Z", "Total_Value"), ("PTS", "zPTS"), ("REB", "zREB"), ("AST", "zAST"), ("STL", "zSTL"), ("BLK", "zBLK"), ("3PM", "z3PM"), ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)]
 
 with st.container(height=450):
     fh_cols = st.columns(col_widths)
@@ -245,10 +295,18 @@ with st.container(height=450):
         r_cols[14].markdown(f"<div class='small-font center-text'>{row['zFG']}</div>", unsafe_allow_html=True)
         r_cols[15].markdown(f"<div class='small-font center-text'>{row['zFT']}</div>", unsafe_allow_html=True)
         with r_cols[16]:
-            if st.button("נלקח", key=f"taken_{row['Player_ID']}", use_container_width=True, type="primary"):
-                draft_player_to_db(row['Player'], current_picking_team)
+            c1, c2 = st.columns([1, 1.5])
+            is_starred = row['Player_ID'] in st.session_state.watchlist
+            star_icon = "⭐" if is_starred else "☆"
+            if c1.button(star_icon, key=f"star_{row['Player_ID']}", use_container_width=True):
+                if is_starred: st.session_state.watchlist.remove(row['Player_ID'])
+                else: st.session_state.watchlist.append(row['Player_ID'])
+                st.rerun()
+            if c2.button("נלקח", key=f"taken_{row['Player_ID']}", use_container_width=True, type="primary"):
+                draft_player_to_db(row['Player'], current_picking_team, row['Player_ID'])
                 st.rerun()
         st.markdown("<hr style='margin: 4px 0; opacity: 0.1;'>", unsafe_allow_html=True)
+
 
 # --- 2. Live H2H League Projections ---
 st.markdown("---")
@@ -285,7 +343,6 @@ if not my_team_roster.empty:
     while unassigned and counts['UTIL'] < 3: counts['UTIL'] += 1; unassigned.pop(0)
     while unassigned: counts['BN'] += 1; unassigned.pop(0)
     
-    # HTML חכם שמייצר פס חיווי יפה, הופך לירוק כשהסלוט מלא
     slots_html = f"""
     <div style="display: flex; gap: 15px; padding: 15px 20px; background-color: #1e2129; border-radius: 8px; border: 1px solid #4c566a; margin-bottom: 20px; flex-wrap: wrap;">
         <div style="text-align: center; flex: 1;"><div style="font-size: 12px; color: #9fb3c8; font-weight:bold; margin-bottom: 4px;">PG</div><div style="font-size: 16px; font-weight: bold; color: {'#a3be8c' if counts['PG']>=1 else '#e5e9f0'};">{counts['PG']} / 1</div></div>
