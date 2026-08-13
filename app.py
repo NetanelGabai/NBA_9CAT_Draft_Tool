@@ -212,7 +212,7 @@ LeagueDeviations AS (
 ),
 ZScores AS (
     SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
-           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
+           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0))*{w['ft']} as Total_Value,
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS,
            ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB,
            ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST,
@@ -262,10 +262,11 @@ if num_my_players > 0:
 df_board['Total_Value'] = df_board['Total_Value'] + ((df_board['PO_Games'] - 11) * 0.05)
 df_board['Total_Value'] = df_board['Total_Value'].round(2)
 
+
 # --- עיצוב CSS מתקדם לטבלה ולכפתורים ---
 st.markdown("""
     <style>
-    /* טקסט נתונים רגיל */
+    /* טקסט נתונים רגיל מיושר וקומפקטי */
     .small-font {
         font-size: 13px !important;
         white-space: nowrap !important;
@@ -273,7 +274,22 @@ st.markdown("""
         color: #f0f2f6;
     }
     
-    /* העלמת מסגרות מכפתורי הכותרות - מראה "מוקפא באקסל" טבעי לחלוטין */
+    /* מירכוז מושלם לכל עמודות הנתונים למעט שם השחקן */
+    .center-text { text-align: center; }
+    .left-text { text-align: left; }
+
+    /* הקפאת שורת הכותרת בתוך הקונטיינר הנגלל */
+    div[data-testid="stScrollableContainer"] > div > div:first-child {
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 100 !important;
+        background-color: var(--background-color) !important;
+        border-bottom: 1px solid rgba(255,255,255,0.15) !important;
+        padding-top: 5px !important;
+        padding-bottom: 5px !important;
+    }
+    
+    /* העלמת מסגרות מכפתורי הכותרות למראה "מוקפא באקסל" נקי */
     section[data-testid="stMain"] button[kind="secondary"] {
         background-color: transparent !important;
         border: none !important;
@@ -283,13 +299,14 @@ st.markdown("""
         color: #9fb3c8 !important;
         padding: 0 !important;
         margin: 0 !important;
+        justify-content: center !important; /* מרכוז טקסט הכפתור */
     }
     section[data-testid="stMain"] button[kind="secondary"]:hover {
         color: #ffffff !important;
         background-color: transparent !important;
     }
 
-    /* עיצוב כפתור "נלקח" - קומפקטי ומשתלב בסביבה הכהה */
+    /* עיצוב כפתור "נלקח" - קומפקטי ומשתלב */
     section[data-testid="stMain"] button[kind="primary"] {
         background-color: #2b313e !important;
         border: 1px solid #4c566a !important;
@@ -328,11 +345,10 @@ if search_query:
 # סידור הטבלה לפי הכותרת שנבחרה
 df_sorted = filtered_df.sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
 
-# חלוקת רוחב העמודות (קבועה עבור הכותרות והנתונים כדי לשמור על יישור)
-col_widths = [0.4, 1.8, 0.7, 0.6, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8]
+# חלוקת רוחב העמודות לטבלה - סימטרי לחלוטין לכותרות ולגוף
+col_widths = [0.4, 1.8, 0.6, 0.6, 0.8, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8]
 
-# --- שורת כותרת "מוקפאת" למיון מחוץ לקונטיינר (כדי שתישאר תמיד בראש הטבלה) ---
-fh_cols = st.columns(col_widths)
+# מילון עמודות
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("ADP", "ADP"), 
     ("PO_Games", "PO_Games"), ("Z", "Total_Value"), ("PTS", "zPTS"), 
@@ -340,52 +356,49 @@ headers_map = [
     ("3PM", "z3PM"), ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)
 ]
 
-for i, (label, sort_col) in enumerate(headers_map):
-    with fh_cols[i]:
-        if sort_col:
-            # אם העמודה הנוכחית היא זו שממוינת עכשיו, נוסיף לה חץ
-            arrow = ""
-            if st.session_state.sort_col_main == sort_col:
-                arrow = " ↓" if st.session_state.sort_asc_main else " ↑"
-            
-            # כפתור מיון לחיץ שנראה כמו טקסט רגיל (כי העלמנו לו את העיצוב ב-CSS)
-            if st.button(f"{label}{arrow}", key=f"sort_{sort_col}", use_container_width=True):
-                # אם לחץ שוב על אותה עמודה - הפוך סדר. אחרת, מיין לפי העמודה החדשה.
-                if st.session_state.sort_col_main == sort_col:
-                    st.session_state.sort_asc_main = not st.session_state.sort_asc_main
-                else:
-                    st.session_state.sort_col_main = sort_col
-                    # ב-ADP ציון נמוך זה עולה, בכל השאר ציון גבוה זה יורד
-                    st.session_state.sort_asc_main = True if sort_col == 'ADP' else False
-                st.rerun()
-        else:
-            # עמודות ללא מיון (כמו מס"ד או כפתור פעולה)
-            st.markdown(f"<div style='font-size:12px; font-weight:bold; color:#9fb3c8; padding-top:4px; text-align:center;'>{label}</div>", unsafe_allow_html=True)
-            
-st.markdown("<hr style='margin: 0px 0 5px 0; opacity: 0.3;'>", unsafe_allow_html=True)
-
-# --- גוף הטבלה נגלל בתוך ה-Container ---
+# --- טבלה מגוללת (כולל הכותרות בתוכה כדי שיחלקו רוחב זהה) ---
 with st.container(height=450):
+    
+    # 1. שורת כותרות שתוקפא בעזרת ה-CSS למעלה
+    fh_cols = st.columns(col_widths)
+    for i, (label, sort_col) in enumerate(headers_map):
+        with fh_cols[i]:
+            if sort_col:
+                arrow = ""
+                if st.session_state.sort_col_main == sort_col:
+                    arrow = " ↓" if st.session_state.sort_asc_main else " ↑"
+                
+                # כפתור מיון
+                if st.button(f"{label}{arrow}", key=f"sort_{sort_col}", use_container_width=True):
+                    if st.session_state.sort_col_main == sort_col:
+                        st.session_state.sort_asc_main = not st.session_state.sort_asc_main
+                    else:
+                        st.session_state.sort_col_main = sort_col
+                        st.session_state.sort_asc_main = True if sort_col == 'ADP' else False
+                    st.rerun()
+            else:
+                st.markdown(f"<div style='font-size:12px; font-weight:bold; color:#9fb3c8; padding-top:4px; text-align:center;'>{label}</div>", unsafe_allow_html=True)
+                
+    # 2. הנתונים (כל המספרים מיושרים למרכז לדיוק מקסימלי)
     for idx, row in df_sorted.head(100).reset_index().iterrows():
         r_cols = st.columns(col_widths)
-        r_cols[0].markdown(f"<div class='small-font' style='text-align:center;'>{idx + 1}</div>", unsafe_allow_html=True)
-        r_cols[1].markdown(f"<div class='small-font'>{row['Player']} ({row['Team']})</div>", unsafe_allow_html=True)
-        r_cols[2].markdown(f"<div class='small-font'>{row['Position']}</div>", unsafe_allow_html=True)
-        r_cols[3].markdown(f"<div class='small-font'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
-        r_cols[4].markdown(f"<div class='small-font'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
-        r_cols[5].markdown(f"<div class='small-font'><b>{row['Total_Value']:.2f}</b></div>", unsafe_allow_html=True)
-        r_cols[6].markdown(f"<div class='small-font'>{row['zPTS']}</div>", unsafe_allow_html=True)
-        r_cols[7].markdown(f"<div class='small-font'>{row['zREB']}</div>", unsafe_allow_html=True)
-        r_cols[8].markdown(f"<div class='small-font'>{row['zAST']}</div>", unsafe_allow_html=True)
-        r_cols[9].markdown(f"<div class='small-font'>{row['zSTL']}</div>", unsafe_allow_html=True)
-        r_cols[10].markdown(f"<div class='small-font'>{row['zBLK']}</div>", unsafe_allow_html=True)
-        r_cols[11].markdown(f"<div class='small-font'>{row['z3PM']}</div>", unsafe_allow_html=True)
-        r_cols[12].markdown(f"<div class='small-font'>{row['zTOV']}</div>", unsafe_allow_html=True)
-        r_cols[13].markdown(f"<div class='small-font'>{row['zFG']}</div>", unsafe_allow_html=True)
-        r_cols[14].markdown(f"<div class='small-font'>{row['zFT']}</div>", unsafe_allow_html=True)
+        r_cols[0].markdown(f"<div class='small-font center-text'>{idx + 1}</div>", unsafe_allow_html=True)
+        r_cols[1].markdown(f"<div class='small-font left-text'>{row['Player']} ({row['Team']})</div>", unsafe_allow_html=True)
+        r_cols[2].markdown(f"<div class='small-font center-text'>{row['Position']}</div>", unsafe_allow_html=True)
+        r_cols[3].markdown(f"<div class='small-font center-text'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
+        r_cols[4].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
+        r_cols[5].markdown(f"<div class='small-font center-text'><b>{row['Total_Value']:.2f}</b></div>", unsafe_allow_html=True)
+        r_cols[6].markdown(f"<div class='small-font center-text'>{row['zPTS']}</div>", unsafe_allow_html=True)
+        r_cols[7].markdown(f"<div class='small-font center-text'>{row['zREB']}</div>", unsafe_allow_html=True)
+        r_cols[8].markdown(f"<div class='small-font center-text'>{row['zAST']}</div>", unsafe_allow_html=True)
+        r_cols[9].markdown(f"<div class='small-font center-text'>{row['zSTL']}</div>", unsafe_allow_html=True)
+        r_cols[10].markdown(f"<div class='small-font center-text'>{row['zBLK']}</div>", unsafe_allow_html=True)
+        r_cols[11].markdown(f"<div class='small-font center-text'>{row['z3PM']}</div>", unsafe_allow_html=True)
+        r_cols[12].markdown(f"<div class='small-font center-text'>{row['zTOV']}</div>", unsafe_allow_html=True)
+        r_cols[13].markdown(f"<div class='small-font center-text'>{row['zFG']}</div>", unsafe_allow_html=True)
+        r_cols[14].markdown(f"<div class='small-font center-text'>{row['zFT']}</div>", unsafe_allow_html=True)
         
         with r_cols[15]:
-            # כפתור "נלקח" בסטייל Primary שכופפנו ב-CSS
             if st.button("נלקח", key=f"taken_{row['Player_ID']}", use_container_width=True, type="primary"):
                 draft_player_to_db(row['Player'], current_picking_team)
                 st.rerun()
