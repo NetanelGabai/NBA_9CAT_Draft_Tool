@@ -94,9 +94,9 @@ conn.commit()
 def get_next_snake_pick(current_p, T):
     R = ((current_p - 1) // T) + 1
     if R % 2 != 0:
-        s = ((current_p - 1) % T) + 1
+        s = ((current_p - 1) // T) + 1
     else:
-        s = T - ((current_p - 1) % T)
+        s = T - ((current_p - 1) // T)
     
     next_R = R + 1
     if next_R % 2 != 0:
@@ -104,6 +104,14 @@ def get_next_snake_pick(current_p, T):
     else:
         next_p = next_R * T - s + 1
     return next_p
+
+# פונקציית עזר לביצוע בחירת שחקן למסד הנתונים
+def draft_player_to_db(player_name, team_name):
+    pick_to_save = st.session_state.my_current_pick
+    cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (team_name, int(pick_to_save), player_name))
+    conn.commit()
+    if team_name == "My Team":
+        st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
 
 # --- UI Sidebar ---
 st.sidebar.header("🎯 Punt Strategy")
@@ -136,21 +144,6 @@ if col_b3.button("איפוס מונה"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.header("🛠️ Live Draft Control")
-available_players_df = pd.read_sql('SELECT Full_Name FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State) ORDER BY Full_Name', conn)
-selected_player = st.sidebar.selectbox("בחר שחקן לתפוס:", available_players_df['Full_Name'])
-
-league_teams = ["My Team"] + [f"Team {i}" for i in range(1, num_teams)]
-draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה?", league_teams)
-
-if st.sidebar.button("בחר שחקן"):
-    pick_to_save = st.session_state.my_current_pick
-    cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (draft_team, int(pick_to_save), selected_player))
-    conn.commit()
-    if draft_team == "My Team":
-        st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
-    st.rerun()
-
 if st.sidebar.button("אפס דראפט מלא"):
     cursor.execute('DELETE FROM Draft_State')
     st.session_state.my_current_pick = 1
@@ -185,20 +178,62 @@ LeagueDeviations AS (
     FROM LeagueImpactStats CROSS JOIN LeagueAvg la
 ),
 ZScores AS (
-    SELECT pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
-           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value
+    SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
+           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
+           ROUND(pi.PTS, 1) as PTS, ROUND(pi.REB, 1) as REB, ROUND(pi.AST, 1) as AST, ROUND(pi.STL, 1) as STL, ROUND(pi.BLK, 1) as BLK, ROUND(pi.Three_PM, 1) as Three_PM, ROUND(pi.TOV, 1) as TOV
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
-SELECT Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
-       ROUND(ADP - {st.session_state.my_current_pick}, 0) as Reach_Score
+SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
+       ROUND(ADP - {st.session_state.my_current_pick}, 0) as Reach_Score,
+       PTS, REB, AST, STL, BLK, Three_PM, TOV
 FROM ZScores
 ORDER BY Total_Value DESC
-LIMIT 100;
+LIMIT 50;
 '''
 
 df_board = pd.read_sql(query, conn)
-st.subheader("📊 Live Big Board (עם מדד Reach מול הבחירה שלך)")
-st.dataframe(df_board, use_container_width=True, height=500)
+
+# --- בחירה בין 2 סוגי טבלאות בדיוק כמו שביקשת ---
+tab1, tab2 = st.tabs(["🔥 המלצות דראפט (Top Recommendations)", "📋 טבלת דירוג מלאה (Z-Score Rankings)"])
+
+with tab1:
+    st.subheader("המלצות דראפט חמות (לחץ כפתור לבחירה מהירה)")
+    for index, row in df_board.head(15).iterrows():
+        c1, c2, c3, c4, c5, c6, c7 = st.columns([2, 1, 1, 1, 1, 1, 1])
+        c1.write(f"**{row['Player']}** ({row['Team']} - {row['Position']})")
+        c2.write(f"ADP: {int(row['ADP'])}")
+        c3.write(f"Value: {row['Total_Value']}")
+        c4.write(f"Reach: {int(row['Reach_Score'])}")
+        
+        if c5.button("הוסף לסגל", key=f"rec_my_{row['Player_ID']}"):
+            draft_player_to_db(row['Player'], "My Team")
+            st.rerun()
+        if c6.button("נלקח", key=f"rec_opp_{row['Player_ID']}"):
+            draft_player_to_db(row['Player'], "Opponent")
+            st.rerun()
+        st.markdown("---")
+
+with tab2:
+    st.subheader("טבלת שחקנים מלאה עם פעולות מהירות")
+    search_query = st.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
+    
+    filtered_df = df_board
+    if search_query:
+        filtered_df = df_board[df_board['Player'].str.contains(search_query, case=False, na=False) | 
+                               df_board['Team'].str.contains(search_query, case=False, na=False) | 
+                               df_board['Position'].str.contains(search_query, case=False, na=False)]
+    
+    for index, row in filtered_df.head(30).iterrows():
+        c1, c2, c3, c4, c5, c6 = st.columns([2, 1, 1, 1, 1, 1])
+        c1.write(f"**{row['Player']}** ({row['Team']} - {row['Position']}) | PTS: {row['PTS']} | REB: {row['REB']} | AST: {row['AST']}")
+        
+        if c4.button("הוסף לסגל", key=f"full_my_{row['Player_ID']}"):
+            draft_player_to_db(row['Player'], "My Team")
+            st.rerun()
+        if c5.button("נלקח", key=f"full_opp_{row['Player_ID']}"):
+            draft_player_to_db(row['Player'], "Opponent")
+            st.rerun()
+        st.markdown("---")
 
 # --- Team Analysis & Roster ---
 st.subheader("🟢 My Team Roster")
@@ -212,10 +247,9 @@ my_team_roster = pd.read_sql('''
 ''', conn)
 st.dataframe(my_team_roster, use_container_width=True, height=200)
 
-# --- מעקב סלוטים נדרשים בסגנון קומפקטי (דורש/נבחר) ---
+# --- מעקב סלוטים נדרשים בסגנון קומפקטי ---
 if not my_team_roster.empty:
     st.markdown("##### 📌 סלוטים נדרשים בסגל")
-    
     player_pool = []
     for idx, row in my_team_roster.iterrows():
         pos_list = [p.strip().upper() for p in str(row['Position']).split(',')]
@@ -273,18 +307,3 @@ if num_players > 0:
     cols = st.columns(7)
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
         cols[i].metric(cat, round(my_team[cat], 1), delta=round(my_team[cat] - (l_avg[cat] * num_players), 1))
-
-# --- Positional Heatmap & Depth Chart ---
-st.subheader("📍 Positional Depth & Scarcity (Supply vs Demand)")
-heatmap_df = pd.read_sql('''
-    SELECT 
-        Position, 
-        COUNT(*) as Available_Players
-    FROM Players p
-    JOIN Projections pr ON p.Player_ID = pr.Player_ID
-    WHERE p.Player_ID NOT IN (SELECT Player_ID FROM Draft_State)
-      AND pr.MIN > 20 AND pr.Games_Played > 20
-    GROUP BY Position
-    ORDER BY Available_Players DESC
-''', conn)
-st.dataframe(heatmap_df, use_container_width=True)
