@@ -194,7 +194,7 @@ ZScores AS (
            ROUND(((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0)), 2) as z3PM,
            ROUND((((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1), 2) as zTOV,
            ROUND(((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0)), 2) as zFG,
-           ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0)), 2) as zFT
+           ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0)), 2) as zFT
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
 SELECT Player_ID, Player, Team, Position, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
@@ -285,7 +285,7 @@ else:
     for i, cat in enumerate(['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']):
         cols[i].metric(cat, 0.0, delta=0.0)
 
-# --- 5. Draft Grid (לוח דראפט ליגה מלא נקי בלי אידקס כפול) ---
+# --- 5. Draft Grid ---
 st.subheader("🗓️ לוח דראפט ליגה מלא (Draft Grid)")
 
 teams_order = []
@@ -319,10 +319,9 @@ for r in range(1, num_rounds + 1):
         player_name = pick_to_player.get(p_num, f"(בחירה {p_num})")
         display_grid.loc[display_grid['סיבוב'] == r, t_name] = str(player_name)
 
-# שימוש ב-hide_index=True כדי להעלים את עמודת האינדקס האוטומטית ולהשאיר רק את עמודת הסיבוב הנקייה
 st.dataframe(display_grid, use_container_width=True, height=350, hide_index=True)
 
-# --- 6. Positional Heatmap ---
+# --- 6. Positional Heatmap (מתוקן ללא כפילויות) ---
 st.subheader("📍 Positional Heatmap (עומק מאגר מול ביקוש)")
 heatmap_query = f'''
     WITH Available AS (SELECT Position FROM Players WHERE Player_ID NOT IN (SELECT Player_ID FROM Draft_State)),
@@ -335,12 +334,16 @@ heatmap_query = f'''
     SELECT 
         s.slot as סלוט, 
         s.demand as "ביקוש (חסר)", 
-        CASE WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail)
-             ELSE COALESCE(avail.cnt, 0) END as "היצע (כשירים כעת)",
-        ROUND(CASE WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail)
-                   ELSE COALESCE(avail.cnt, 0) END * 1.0 / NULLIF(s.demand, 1), 2) as "יחס נדירות"
+        CASE 
+            WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail)
+            ELSE (SELECT COUNT(*) FROM Available WHERE Position LIKE '%' || s.slot || '%')
+        END as "היצע (כשירים כעת)",
+        ROUND(
+            CASE 
+                WHEN s.slot IN ('UTIL', 'BN') THEN (SELECT cnt FROM TotalAvail)
+                ELSE (SELECT COUNT(*) FROM Available WHERE Position LIKE '%' || s.slot || '%')
+            END * 1.0 / NULLIF(s.demand, 1), 2
+        ) as "יחס נדירות"
     FROM SlotsDefinition s
-    LEFT JOIN (SELECT Position, COUNT(*) as cnt FROM Available GROUP BY Position) avail 
-    ON s.slot NOT IN ('UTIL', 'BN') AND avail.Position LIKE '%' || s.slot || '%'
 '''
 st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, height=350, hide_index=True)
