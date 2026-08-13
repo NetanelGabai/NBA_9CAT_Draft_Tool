@@ -5,9 +5,9 @@ import io
 
 st.set_page_config(page_title="Fantasy NBA Draft Tool", layout="wide")
 
-# אתחול הבחירה הראשונה של המשתמש ב-Session State
-if 'user_pick' not in st.session_state:
-    st.session_state.user_pick = 1
+# אתחול מונה הבחירות ב-Session State בצורה בטוחה לחלוטין
+if 'my_current_pick' not in st.session_state:
+    st.session_state.my_current_pick = 1
 
 @st.cache_resource
 def setup_database():
@@ -119,16 +119,23 @@ punt_pts = st.sidebar.checkbox("Punt PTS")
 punt_tov = st.sidebar.checkbox("Punt TOV")
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Draft Settings")
-num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=12)
+st.sidebar.header("⚙️ הגדרות דראפט (Snake)")
+num_teams = st.sidebar.number_input("מספר קבוצות בליגה", min_value=4, max_value=20, value=8)
 
-# שדה הבחירה מקושר כעת ישירות עם key ל-Session State כדי שיתעדכן אוטומטית
-st.sidebar.number_input(
-    "מספר הבחירה הבאה שלך בדראפט", 
-    min_value=1, 
-    max_value=300, 
-    key="user_pick"
-)
+# תצוגה ושליטה בבחירה הנוכחית שלך בדיוק כמו בכלי הישן שלך
+st.sidebar.markdown(f"**הבחירה שלך בתור:** `{st.session_state.my_current_pick}`")
+
+col_b1, col_b2, col_b3 = st.sidebar.columns(3)
+if col_b1.button("-1 בחירה"):
+    if st.session_state.my_current_pick > 1:
+        st.session_state.my_current_pick -= 1
+        st.rerun()
+if col_b2.button("+1 בחירה"):
+    st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
+    st.rerun()
+if col_b3.button("איפוס מונה"):
+    st.session_state.my_current_pick = 1
+    st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ Live Draft Control")
@@ -139,20 +146,20 @@ league_teams = ["My Team"] + [f"Team {i}" for i in range(1, num_teams)]
 draft_team = st.sidebar.selectbox("לאיזו קבוצה שייכת הבחירה?", league_teams)
 
 if st.sidebar.button("בחר שחקן"):
-    current_selection_pick = st.session_state.user_pick
+    pick_to_save = st.session_state.my_current_pick
     
-    cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (draft_team, int(current_selection_pick), selected_player))
+    cursor.execute('INSERT INTO Draft_State (Player_ID, Fantasy_Team, Pick_Number) SELECT Player_ID, ?, ? FROM Players WHERE Full_Name = ?', (draft_team, int(pick_to_save), selected_player))
     conn.commit()
     
-    # אם בחרת עבור הקבוצה שלך, הקפץ אוטומטית לבחירה הבאה בדראפט נחש
+    # אם בחרת לקבוצה שלך, הקפץ אוטומטית לבחירה הבאה בדראפט נחש
     if draft_team == "My Team":
-        st.session_state.user_pick = get_next_snake_pick(st.session_state.user_pick, num_teams)
+        st.session_state.my_current_pick = get_next_snake_pick(st.session_state.my_current_pick, num_teams)
         
     st.rerun()
 
-if st.sidebar.button("אפס דראפט"):
+if st.sidebar.button("אפס דראפט מלא"):
     cursor.execute('DELETE FROM Draft_State')
-    st.session_state.user_pick = 1
+    st.session_state.my_current_pick = 1
     conn.commit()
     st.rerun()
 
@@ -189,7 +196,7 @@ ZScores AS (
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
 SELECT Player, Team, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value,
-       ROUND(ADP - {st.session_state.user_pick}, 0) as Reach_Score
+       ROUND(ADP - {st.session_state.my_current_pick}, 0) as Reach_Score
 FROM ZScores
 ORDER BY Total_Value DESC
 LIMIT 100;
