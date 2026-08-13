@@ -130,6 +130,7 @@ for i in range(0, len(punt_options), 2):
         key2 = opt2.lower().replace('%', '')
         w[key2] = cols[1].selectbox(f"{opt2}", [1.0, 0.75, 0.5, 0.25, 0.0], index=0, key=f"w_{key2}")
 
+
 st.sidebar.markdown("---")
 st.sidebar.header('📅 הגדרות לו"ז פלייאוף')
 schedule_file = st.sidebar.file_uploader("העלה קובץ לו\"ז משחקים (CSV)", type=["csv"])
@@ -238,12 +239,11 @@ df_board = pd.read_sql(query, conn)
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
 # --- 🚀 LEVEL 1 UPGRADES: SMART ALGORITHMS (Pos Penalty & Proportional Boost) 🚀 ---
-# שולפים גם את נתוני האחוזים המדויקים כדי לעשות בונוס חסרים כולל לאחוזים!
 my_team_roster_check = pd.read_sql('SELECT p.Full_Name, p.Position, pr.PTS, pr.REB, pr.AST, pr.STL, pr.BLK, pr.Three_PM, pr.TOV, pr.FG_Made, pr.FG_Att, pr.FT_Made, pr.FT_Att FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team"', conn)
 num_my_players = len(my_team_roster_check)
 
 if num_my_players > 0:
-    # --- 1. Positional Cap Penalty (עונש עומס עמדתי) ---
+    # 1. Positional Cap Penalty (עונש עומס עמדתי)
     my_pos_list = []
     for pos_str in my_team_roster_check['Position']:
         my_pos_list.extend([p.strip().upper() for p in str(pos_str).split(',')])
@@ -254,17 +254,15 @@ if num_my_players > 0:
         p_list = [p.strip().upper() for p in str(player_pos_str).split(',')]
         base_p = [p for p in p_list if p in pos_counts]
         if not base_p: return 0.0
-        
-        # בודק את העמדה הכי "פנויה" של השחקן (אם הוא PF, C וחסר PF זה לא יעניש אותו על ה-C)
         min_count = min([pos_counts.get(p, 0) for p in base_p])
-        if min_count >= 4: return -1.5   # קנס כבד - העמדות מלאות
-        elif min_count == 3: return -0.5 # קנס קל - כדאי לגוון
+        if min_count >= 4: return -1.5   # קנס כבד
+        elif min_count == 3: return -0.5 # קנס קל
         return 0.0
     
     df_board['Pos_Penalty'] = df_board['Position'].apply(apply_pos_penalty)
     df_board['Total_Value'] += df_board['Pos_Penalty']
 
-    # --- 2. Proportional Needs Boost (בונוס צרכים יחסי ודינמי) ---
+    # 2. Proportional Needs Boost (בונוס יחסי חכם כולל אחוזים)
     l_avg_check = pd.read_sql('SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV, SUM(FG_Made)/SUM(FG_Att) as lg_fg, SUM(FT_Made)/SUM(FT_Att) as lg_ft FROM Projections', conn).iloc[0]
     
     cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV'}
@@ -272,29 +270,25 @@ if num_my_players > 0:
     
     boost_series = pd.Series(0.0, index=df_board.index)
     
-    # חישוב יחסי לסטטיסטיקות מצטברות
     for cat, w_key in cat_to_w_key.items():
         cat_weight = w.get(w_key, 1.0)
         if cat_weight > 0:
             team_total = my_team_roster_check[cat].sum()
             expected_total = l_avg_check[cat] * num_my_players
             
-            # אם TOV, חסרון זה כשיש יותר מדי. אחרת, חסרון זה כשיש פחות מדי.
             delta = team_total - expected_total if cat == 'TOV' else expected_total - team_total
             
             if delta > 0 and expected_total > 0:
-                deficit_pct = min(delta / expected_total, 1.0) # כמה אני במינוס ביחס למה שהיה צריך להיות (גג 100%)
+                deficit_pct = min(delta / expected_total, 1.0)
                 z_col = cat_to_z.get(cat)
-                # נותן בונוס רק לשחקנים שחיוביים בקטגוריה, מוכפל בגודל הצורך, ובמשקל הפאנט
                 positive_z = df_board[z_col].clip(lower=0)
                 boost_series += positive_z * deficit_pct * cat_weight * 0.25
 
-    # חישוב יחסי לאחוזים (FG% / FT%)
     if w.get('fg', 1.0) > 0 and my_team_roster_check['FG_Att'].sum() > 0:
         team_fg = my_team_roster_check['FG_Made'].sum() / my_team_roster_check['FG_Att'].sum()
         fg_delta = l_avg_check['lg_fg'] - team_fg
         if fg_delta > 0:
-            deficit_pct = min(fg_delta / l_avg_check['lg_fg'], 1.0) * 5 # מכפיל כי אחוזים הם שברים קטנים
+            deficit_pct = min(fg_delta / l_avg_check['lg_fg'], 1.0) * 5
             boost_series += df_board['zFG'].clip(lower=0) * deficit_pct * w.get('fg', 1.0) * 0.25
 
     if w.get('ft', 1.0) > 0 and my_team_roster_check['FT_Att'].sum() > 0:
@@ -314,16 +308,19 @@ df_board['Total_Value'] = df_board['Total_Value'].round(2)
 # --- עיצוב CSS מתקדם לטבלה ולכפתורים ---
 st.markdown("""
     <style>
+    /* טקסט נתונים רגיל מיושר וקומפקטי */
     .small-font {
         font-size: 13px !important;
         white-space: nowrap !important;
         padding-top: 6px;
         color: #f0f2f6;
     }
+    
+    /* מירכוז מושלם לכל עמודות הנתונים למעט שם השחקן */
     .center-text { text-align: center; }
     .left-text { text-align: left; }
 
-    /* הקפאת שורת הכותרת */
+    /* הקפאת שורת הכותרת בתוך הקונטיינר הנגלל */
     div[data-testid="stScrollableContainer"] > div > div:first-child {
         position: sticky !important;
         top: 0 !important;
@@ -334,7 +331,7 @@ st.markdown("""
         padding-bottom: 5px !important;
     }
     
-    /* העלמת מסגרות מכפתורי הכותרות */
+    /* העלמת מסגרות מכפתורי הכותרות למראה "מוקפא באקסל" נקי */
     section[data-testid="stMain"] button[kind="secondary"] {
         background-color: transparent !important;
         border: none !important;
@@ -344,14 +341,14 @@ st.markdown("""
         color: #9fb3c8 !important;
         padding: 0 !important;
         margin: 0 !important;
-        justify-content: center !important;
+        justify-content: center !important; /* מרכוז טקסט הכפתור */
     }
     section[data-testid="stMain"] button[kind="secondary"]:hover {
         color: #ffffff !important;
         background-color: transparent !important;
     }
 
-    /* עיצוב כפתור נלקח */
+    /* עיצוב כפתור "נלקח" - קומפקטי ומשתלב בסביבה הכהה */
     section[data-testid="stMain"] button[kind="primary"] {
         background-color: #2b313e !important;
         border: 1px solid #4c566a !important;
@@ -368,6 +365,7 @@ st.markdown("""
         background-color: #4c566a !important;
     }
 
+    /* צמצום המרווחים הענקיים בין העמודות למראה של טבלה רציפה */
     [data-testid="column"] {
         padding-left: 0.15rem !important;
         padding-right: 0.15rem !important;
@@ -376,7 +374,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- 1. טבלת דירוג מלאה ראשית ---
+# --- 1. טבלת דירוג חכמה ---
 st.markdown("### 📋 טבלת דירוג חכמה (מתעדכנת לפי צרכי קבוצה ועומס עמדות)")
 search_query = st.text_input("🔍 חיפוש שחקן / קבוצה / עמדה", "")
 
@@ -386,10 +384,13 @@ if search_query:
                            df_board['Team'].str.contains(search_query, case=False, na=False) | 
                            df_board['Position'].str.contains(search_query, case=False, na=False)]
 
+# סידור הטבלה לפי הכותרת שנבחרה
 df_sorted = filtered_df.sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
 
+# חלוקת רוחב העמודות לטבלה - סימטרי לחלוטין לכותרות ולגוף
 col_widths = [0.4, 1.8, 0.6, 0.6, 0.8, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.8]
 
+# מילון עמודות
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("ADP", "ADP"), 
     ("PO_Games", "PO_Games"), ("Z", "Total_Value"), ("PTS", "zPTS"), 
@@ -397,7 +398,10 @@ headers_map = [
     ("3PM", "z3PM"), ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)
 ]
 
+# --- טבלה מגוללת (כולל הכותרות בתוכה כדי שיחלקו רוחב זהה) ---
 with st.container(height=450):
+    
+    # 1. שורת כותרות שתוקפא בעזרת ה-CSS למעלה
     fh_cols = st.columns(col_widths)
     for i, (label, sort_col) in enumerate(headers_map):
         with fh_cols[i]:
@@ -406,16 +410,19 @@ with st.container(height=450):
                 if st.session_state.sort_col_main == sort_col:
                     arrow = " ↓" if st.session_state.sort_asc_main else " ↑"
                 
+                # כפתור מיון לחיץ שנראה כמו טקסט רגיל
                 if st.button(f"{label}{arrow}", key=f"sort_{sort_col}", use_container_width=True):
                     if st.session_state.sort_col_main == sort_col:
                         st.session_state.sort_asc_main = not st.session_state.sort_asc_main
                     else:
                         st.session_state.sort_col_main = sort_col
+                        # ב-ADP ציון נמוך זה עולה, בכל השאר ציון גבוה זה יורד
                         st.session_state.sort_asc_main = True if sort_col == 'ADP' else False
                     st.rerun()
             else:
                 st.markdown(f"<div style='font-size:12px; font-weight:bold; color:#9fb3c8; padding-top:4px; text-align:center;'>{label}</div>", unsafe_allow_html=True)
                 
+    # 2. הנתונים (כל המספרים מיושרים למרכז לדיוק מקסימלי)
     for idx, row in df_sorted.head(100).reset_index().iterrows():
         r_cols = st.columns(col_widths)
         r_cols[0].markdown(f"<div class='small-font center-text'>{idx + 1}</div>", unsafe_allow_html=True)
