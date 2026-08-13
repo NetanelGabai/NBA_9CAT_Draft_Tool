@@ -126,8 +126,9 @@ punt_pts = st.sidebar.checkbox("Punt PTS")
 punt_tov = st.sidebar.checkbox("Punt TOV")
 
 st.sidebar.markdown("---")
-st.sidebar.header("📅 הגדרות לו"ז פלייאוף")
-schedule_file = st.sidebar.file_uploader("העלה קובץ לו"ז משחקים (CSV)", type=["csv"])
+# תיקון השגיאה כאן: שימוש בגרש בודד
+st.sidebar.header('📅 הגדרות לו"ז פלייאוף')
+schedule_file = st.sidebar.file_uploader("העלה קובץ לו\"ז משחקים (CSV)", type=["csv"])
 playoff_start = st.sidebar.number_input("שבוע פלייאוף התחלתי", min_value=1, max_value=30, value=22)
 playoff_end = st.sidebar.number_input("שבוע פלייאוף סופי", min_value=1, max_value=30, value=24)
 
@@ -136,25 +137,19 @@ playoff_games_map = {}
 if schedule_file is not None:
     try:
         sched_df = pd.read_csv(schedule_file)
-        # מציאת עמודת הקבוצה (לרוב נקראת Team או Abbrev)
         team_col = next((col for col in sched_df.columns if col.lower() in ['team', 'abbrev', 'franchise']), sched_df.columns[0])
-        
-        # סינון עמודות השבועות בטווח המבוקש
         week_cols = [col for col in sched_df.columns if str(col).isdigit() and playoff_start <= int(col) <= playoff_end]
         if not week_cols:
-            # אם השבועות נקראים אחרת (למשל W22 וכו') נסה לחפש מחרוזות
             week_cols = [col for col in sched_df.columns if any(str(w) in str(col) for w in range(playoff_start, playoff_end + 1))]
-            
         if week_cols:
             sched_df['Playoff_Total'] = sched_df[week_cols].sum(axis=1)
             playoff_games_map = dict(zip(sched_df[team_col].str.strip().str.upper(), sched_df['Playoff_Total']))
-            st.sidebar.success("לו"ז הפלייאוף נטען בהצלחה!")
+            st.sidebar.success("לו\"ז הפלייאוף נטען בהצלחה!")
         else:
             st.sidebar.error("לא נמצאו עמודות שבועות תואמות בטווח שנבחר.")
     except Exception as e:
-        st.sidebar.error(f"שגיאה בקריאת קובץ הלו"ז: {e}")
+        st.sidebar.error(f"שגיאה בקריאת קובץ הלו\"ז: {e}")
 
-# ברירת מחדל אם לא הועלה קובץ
 if not playoff_games_map:
     default_vals = ['ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NYK', 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'TOR', 'UTA', 'WAS']
     playoff_games_map = {t: 11 for t in default_vals}
@@ -219,7 +214,7 @@ LeagueDeviations AS (
 ),
 ZScores AS (
     SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Rank as ADP,
-           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_fg,0))*{w['ft']} as Total_Value,
+           ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS,
            ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB,
            ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST,
@@ -242,7 +237,7 @@ df_board = pd.read_sql(query, conn)
 # הוספת נתוני לו"ז פלייאוף דינמיים לפי המפה שנטענה
 df_board['Playoff_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
-# --- SMART RECOMMENDATIONS BOOST (Punt-Aware & Playoff Schedule Boost) ---
+# --- SMART RECOMMENDATIONS BOOST ---
 my_team_roster_check = pd.read_sql('SELECT p.Full_Name, pr.PTS, pr.REB, pr.AST, pr.STL, pr.BLK, pr.Three_PM, pr.TOV FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team"', conn)
 num_my_players = len(my_team_roster_check)
 
@@ -266,7 +261,7 @@ if num_my_players > 0:
         boost_sum = df_board[needs_boost].sum(axis=1)
         df_board['Total_Value'] = df_board['Total_Value'] + (boost_sum * 0.08)
 
-# בונוס קטן לפלייאוף (שחקנים עם יותר משחקי פלייאוף מקבלים דחיפה קלה בערך)
+# בונוס קטן לפלייאוף
 df_board['Total_Value'] = df_board['Total_Value'] + ((df_board['Playoff_Games'] - 11) * 0.05)
 df_board['Total_Value'] = df_board['Total_Value'].round(2)
 
