@@ -17,6 +17,7 @@ st.markdown("""
     .player-name { font-weight: 600; color: #ffffff; font-size: 14px; }
     .player-meta { color: #718096; font-size: 11px; margin-left: 5px; }
     .total-value { font-weight: 800; color: #ecc94b; font-size: 14px; }
+    .durant-value { font-weight: 700; color: #a0aec0; font-size: 13px; }
     .tier-badge { background-color: #2d3748; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #cbd5e0; font-size: 11px; }
     .center-text { text-align: center; } 
     .left-text { text-align: left; }
@@ -82,6 +83,10 @@ def setup_database():
     df_raw = pd.read_csv(io.StringIO('\n'.join(lines)))
     df_raw.columns = df_raw.columns.str.strip()
     df_clean = df_raw.drop_duplicates(subset=['Player'], keep='first').copy()
+    
+    # נרמול עמדות לפורמט אחיד של פסיקים (הכנה לקבצים מקצועיים)
+    df_clean['Pos'] = df_clean['Pos'].astype(str).str.replace('/', ',').str.replace('-', ',')
+    
     column_mapping = {
         'Rk': 'Rank', 'Player': 'Full_Name', 'Team': 'Team', 'Pos': 'Position', 
         'G': 'Games_Played', 'MP': 'MIN', 'PTS': 'PTS', 'TRB': 'REB', 'AST': 'AST', 
@@ -150,7 +155,6 @@ auto_pivot = st.sidebar.toggle("🤖 מנוע Auto-Pivot", value=False, help="י
 w = {}
 punt_options = ["FG%", "FT%", "3PM", "REB", "AST", "STL", "BLK", "PTS", "TOV"]
 
-# חישוב Auto-Pivot ברקע (אם דלוק)
 auto_pivot_active = False
 auto_pivot_msg = ""
 if auto_pivot:
@@ -255,7 +259,12 @@ SELECT Player_ID, Player, Team, Position, Games_Played, ROUND(ADP, 0) as ADP, RO
 df_board = pd.read_sql(query, conn)
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
-# --- 2. מודל Tiers (מדרגות איכות לפי עמדה) ---
+# --- חישוב DURANT (Minus 1 Value) ---
+# מסכמים את ציוני ה-Z של השחקן בכל הקטגוריות ומחסירים את הציון הנמוך ביותר שלו
+z_columns = ['zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zTOV', 'zFG', 'zFT']
+df_board['Durant'] = (df_board[z_columns].sum(axis=1) - df_board[z_columns].min(axis=1)).round(2)
+
+# --- מודל Tiers ---
 df_board = df_board.sort_values(by='Total_Value', ascending=False)
 tier_map = {}
 for pos in ['PG', 'SG', 'SF', 'PF', 'C']:
@@ -263,7 +272,7 @@ for pos in ['PG', 'SG', 'SF', 'PF', 'C']:
     current_tier = 1
     last_z = None
     for idx, row in pos_players.iterrows():
-        if last_z is not None and (last_z - row['Total_Value']) > 0.75: # קפיצה מובהקת
+        if last_z is not None and (last_z - row['Total_Value']) > 0.75:
             current_tier += 1
         tier_map[(row['Player_ID'], pos)] = current_tier
         last_z = row['Total_Value']
@@ -274,7 +283,7 @@ def get_player_tier(row):
     return min(tiers) if tiers else 1
 df_board['Tier'] = df_board.apply(get_player_tier, axis=1)
 
-# --- Survive Prob & Risk (מדד סיכון מבוסס משחקים) ---
+# --- Survive Prob & Risk ---
 def get_survive_status(adp):
     buffer = adp - next_my_pick
     if buffer >= 10: return "🟢"
@@ -285,13 +294,13 @@ df_board['Survive'] = df_board['ADP'].apply(get_survive_status)
 def get_risk_status(gp):
     try:
         val = float(gp)
-        if val >= 72: return "🟢" # Ironman
-        elif val >= 65: return "🟡" # Load Management / Regular
-        else: return "🔴" # Injury Prone
+        if val >= 72: return "🟢"
+        elif val >= 65: return "🟡"
+        else: return "🔴"
     except: return "🟡"
 df_board['Risk'] = df_board['Games_Played'].apply(get_risk_status)
 
-# --- SMART BOOSTS (Pos Penalty & Needs) ---
+# --- SMART BOOSTS ---
 my_team_roster_check = pd.read_sql('SELECT p.Full_Name, p.Position, pr.PTS, pr.REB, pr.AST, pr.STL, pr.BLK, pr.Three_PM, pr.TOV, pr.FG_Made, pr.FG_Att, pr.FT_Made, pr.FT_Att FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team"', conn)
 num_my_players = len(my_team_roster_check)
 if num_my_players > 0:
@@ -321,17 +330,16 @@ if num_my_players > 0:
 
 df_board['Total_Value'] = (df_board['Total_Value'] + ((df_board['PO_Games'] - 11) * 0.05)).round(2)
 
-# רוחבי עמודות הותאמו ל-19 פריטים עכשיו
-col_widths = [0.4, 1.8, 0.6, 0.4, 0.5, 0.5, 0.4, 0.4, 0.6, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.2]
+# --- עמודות התצוגה המעודכנות (נוספה עמודת DUR) ---
+col_widths = [0.4, 1.8, 0.6, 0.4, 0.5, 0.4, 0.4, 0.4, 0.6, 0.6, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("T", "Tier"), 
     ("ADP", "ADP"), ("סטטוס", "Survive"), ("🏥", "Risk"), ("PO", "PO_Games"), 
-    ("Z", "Total_Value"), ("PTS", "zPTS"), ("REB", "zREB"), ("AST", "zAST"), 
-    ("STL", "zSTL"), ("BLK", "zBLK"), ("3PM", "z3PM"), ("TOV", "zTOV"), 
-    ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)
+    ("Z", "Total_Value"), ("DUR", "Durant"), ("PTS", "zPTS"), ("REB", "zREB"), 
+    ("AST", "zAST"), ("STL", "zSTL"), ("BLK", "zBLK"), ("3PM", "z3PM"), 
+    ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)
 ]
 
-# פונקציה לעיבוד שורת שחקן לטבלה (כדי לא לשכפל קוד גם ל-Watchlist וגם ללוח הראשי)
 def render_player_row(idx, row, is_wl=False):
     r_cols = st.columns(col_widths)
     r_cols[0].markdown(f"<div class='small-font center-text'>{idx + 1}</div>", unsafe_allow_html=True)
@@ -343,16 +351,17 @@ def render_player_row(idx, row, is_wl=False):
     r_cols[6].markdown(f"<div class='small-font center-text' title='סיכון פציעה/מנוחות'>{row['Risk']}</div>", unsafe_allow_html=True) 
     r_cols[7].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
     r_cols[8].markdown(f"<div class='small-font center-text total-value'>{row['Total_Value']:.2f}</div>", unsafe_allow_html=True)
-    r_cols[9].markdown(f"<div class='small-font center-text'>{color_z_score(row['zPTS'])}</div>", unsafe_allow_html=True)
-    r_cols[10].markdown(f"<div class='small-font center-text'>{color_z_score(row['zREB'])}</div>", unsafe_allow_html=True)
-    r_cols[11].markdown(f"<div class='small-font center-text'>{color_z_score(row['zAST'])}</div>", unsafe_allow_html=True)
-    r_cols[12].markdown(f"<div class='small-font center-text'>{color_z_score(row['zSTL'])}</div>", unsafe_allow_html=True)
-    r_cols[13].markdown(f"<div class='small-font center-text'>{color_z_score(row['zBLK'])}</div>", unsafe_allow_html=True)
-    r_cols[14].markdown(f"<div class='small-font center-text'>{color_z_score(row['z3PM'])}</div>", unsafe_allow_html=True)
-    r_cols[15].markdown(f"<div class='small-font center-text'>{color_z_score(row['zTOV'])}</div>", unsafe_allow_html=True) 
-    r_cols[16].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFG'])}</div>", unsafe_allow_html=True)
-    r_cols[17].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFT'])}</div>", unsafe_allow_html=True)
-    with r_cols[18]:
+    r_cols[9].markdown(f"<div class='small-font center-text durant-value' title='DURANT: ציון וואקום ללא הקטגוריה החלשה ביותר'>{row['Durant']:.2f}</div>", unsafe_allow_html=True)
+    r_cols[10].markdown(f"<div class='small-font center-text'>{color_z_score(row['zPTS'])}</div>", unsafe_allow_html=True)
+    r_cols[11].markdown(f"<div class='small-font center-text'>{color_z_score(row['zREB'])}</div>", unsafe_allow_html=True)
+    r_cols[12].markdown(f"<div class='small-font center-text'>{color_z_score(row['zAST'])}</div>", unsafe_allow_html=True)
+    r_cols[13].markdown(f"<div class='small-font center-text'>{color_z_score(row['zSTL'])}</div>", unsafe_allow_html=True)
+    r_cols[14].markdown(f"<div class='small-font center-text'>{color_z_score(row['zBLK'])}</div>", unsafe_allow_html=True)
+    r_cols[15].markdown(f"<div class='small-font center-text'>{color_z_score(row['z3PM'])}</div>", unsafe_allow_html=True)
+    r_cols[16].markdown(f"<div class='small-font center-text'>{color_z_score(row['zTOV'])}</div>", unsafe_allow_html=True) 
+    r_cols[17].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFG'])}</div>", unsafe_allow_html=True)
+    r_cols[18].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFT'])}</div>", unsafe_allow_html=True)
+    with r_cols[19]:
         c1, c2 = st.columns([1, 1.5])
         is_starred = row['Player_ID'] in st.session_state.watchlist
         star_icon = "⭐" if is_starred else "☆"
@@ -373,7 +382,6 @@ def render_player_row(idx, row, is_wl=False):
             st.rerun()
     st.markdown("<hr style='margin: 4px 0; border-color: rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
 
-
 # --- WATCHLIST SECTION ---
 st.markdown("### ⭐ רשימת מעקב (Targets)")
 wl_df = df_board[df_board['Player_ID'].isin(st.session_state.watchlist)].sort_values(by=st.session_state.sort_col_main, ascending=st.session_state.sort_asc_main)
@@ -386,7 +394,6 @@ if not wl_df.empty:
             with fh_cols_wl[i]:
                 st.markdown(f"<div style='font-size:11px; font-weight:700; color:#ecc94b; padding-top:4px; text-align:center;'>{label}</div>", unsafe_allow_html=True)
         st.markdown("<hr style='margin: 0px 0 5px 0; border-color: rgba(236,201,75,0.3);'>", unsafe_allow_html=True)
-        
         for idx, row in wl_df.reset_index().iterrows():
             render_player_row(idx, row, is_wl=True)
 else:
