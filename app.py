@@ -45,15 +45,35 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def color_z_score(val):
+# פונקציית עיצוב חכמה (צובעת לפי Z-score אבל מציגה את מה שהמשתמש בחר)
+def format_stat_cell(raw_val, z_val, show_raw, is_pct=False):
     try:
-        v = float(val)
-        if v >= 1.5: return f"<span style='color: #48bb78; font-weight: bold;'>{val}</span>"
-        elif v >= 0.5: return f"<span style='color: #9ae6b4;'>{val}</span>"
-        elif v <= -1.5: return f"<span style='color: #f56565; font-weight: bold;'>{val}</span>"
-        elif v <= -0.5: return f"<span style='color: #fc8181;'>{val}</span>"
-        else: return f"<span style='color: #a0aec0;'>{val}</span>"
-    except: return val
+        v = float(z_val)
+        if v >= 1.5: color = "#48bb78"; weight = "bold"
+        elif v >= 0.5: color = "#9ae6b4"; weight = "normal"
+        elif v <= -1.5: color = "#f56565"; weight = "bold"
+        elif v <= -0.5: color = "#fc8181"; weight = "normal"
+        else: color = "#a0aec0"; weight = "normal"
+    except: 
+        color = "#a0aec0"
+        weight = "normal"
+        
+    try:
+        r = float(raw_val)
+        if is_pct: raw_str = f"{r*100:.1f}%"
+        else: raw_str = f"{r:.1f}"
+    except:
+        raw_str = "0.0"
+        
+    if show_raw:
+        display_text = raw_str
+        tooltip = f"Z-Score: {z_val}"
+    else:
+        display_text = str(z_val)
+        tooltip = f"Avg: {raw_str}"
+        
+    return f"<span title='{tooltip}' style='color: {color}; font-weight: {weight}; cursor: help;'>{display_text}</span>"
+
 
 TEAM_NAME_TO_ABBR = {
     'ATLANTA HAWKS': 'ATL', 'BOSTON CELTICS': 'BOS', 'BROOKLYN NETS': 'BKN', 'CHARLOTTE HORNETS': 'CHA',
@@ -79,7 +99,6 @@ def setup_database():
     cursor.execute('''CREATE TABLE Players (Player_ID INTEGER PRIMARY KEY AUTOINCREMENT, Full_Name TEXT UNIQUE NOT NULL, Team TEXT, Position TEXT, Injury_Status TEXT)''')
     cursor.execute('''CREATE TABLE Projections (Player_ID INTEGER, Rank REAL, Games_Played REAL, MIN REAL, PTS REAL, REB REAL, AST REAL, STL REAL, BLK REAL, Three_PM REAL, FG_Made REAL, FG_Att REAL, FT_Made REAL, FT_Att REAL, TOV REAL, FOREIGN KEY (Player_ID) REFERENCES Players(Player_ID))''')
     
-    # טעינת הנתונים בצורה חכמה (מתמודד עם קובץ מסודר או עם כותרת כפולה)
     try:
         df_raw = pd.read_csv('nba_data.csv', encoding='utf-8-sig')
         df_raw.columns = df_raw.columns.str.strip()
@@ -97,10 +116,8 @@ def setup_database():
 
     df_clean = df_raw.drop_duplicates(subset=['Player'], keep='first').copy()
     
-    # נרמול עמדות (הופך C/PF ל-C, PF)
     df_clean['Pos'] = df_clean['Pos'].astype(str).str.replace('/', ',').str.replace('-', ',')
     
-    # ניקוי ADP - שליפת ה-ADP האמיתי בלבד (המספר השמאלי) מתעלם מהפלוסים
     def clean_adp(val):
         val = str(val).strip()
         if '+' in val: val = val.split('+')[0]
@@ -111,10 +128,8 @@ def setup_database():
     if 'ADPConsensus' in df_clean.columns:
         df_clean['ADPConsensus'] = df_clean['ADPConsensus'].apply(clean_adp)
     else:
-        # Fallback in case standard Rank column is used instead
         df_clean['ADPConsensus'] = df_clean.get('Rank', 999).apply(clean_adp)
     
-    # ניקוי אחוזים (הסרת % והמרה לעשרוני)
     def parse_pct(val):
         if pd.isna(val) or val == '-': return 0.0
         val = str(val).replace('%', '').strip()
@@ -124,13 +139,11 @@ def setup_database():
     df_clean['FG%'] = df_clean.get('FG%', pd.Series(0, index=df_clean.index)).apply(parse_pct)
     df_clean['FT%'] = df_clean.get('FT%', pd.Series(0, index=df_clean.index)).apply(parse_pct)
     
-    # המרת קליעות למספרים נקיים וחישוב זריקות (Att) מתוך הקליעות והאחוזים
     df_clean['FGM'] = pd.to_numeric(df_clean.get('FGM', df_clean.get('FG', 0)), errors='coerce').fillna(0)
     df_clean['FTM'] = pd.to_numeric(df_clean.get('FTM', df_clean.get('FT', 0)), errors='coerce').fillna(0)
     df_clean['FGA'] = df_clean.apply(lambda row: row['FGM'] / row['FG%'] if row.get('FG%', 0) > 0 else (pd.to_numeric(row.get('FGA', 0), errors='coerce') or 0), axis=1)
     df_clean['FTA'] = df_clean.apply(lambda row: row['FTM'] / row['FT%'] if row.get('FT%', 0) > 0 else (pd.to_numeric(row.get('FTA', 0), errors='coerce') or 0), axis=1)
     
-    # מיפוי העמודות של Stocks & Buckets למנוע שלנו
     column_mapping = {
         'ADPConsensus': 'Rank', 
         'Player': 'Full_Name', 
@@ -205,6 +218,11 @@ if st.sidebar.button("↩️ ביטול בחירה אחרונה (Undo)", use_con
         conn.commit()
         if st.session_state.global_pick > 1: st.session_state.global_pick -= 1
         st.rerun()
+
+st.sidebar.divider()
+
+# מתג תצוגה חדש - מאפשר לראות את המספרים האמיתיים!
+show_raw_stats = st.sidebar.toggle("🔢 הצג ממוצעים למשחק (Raw)", value=True, help="החלף בין תצוגת Z-Scores לתצוגת ממוצעים ריאליים. הצבעים עדיין משקפים את איכות ה-Z-Score האמיתית!")
 
 st.sidebar.divider()
 
@@ -284,6 +302,7 @@ next_my_pick = my_future_picks[0] if my_future_picks else st.session_state.globa
 st.markdown("<h1 style='color: #f7fafc; margin-bottom: 0;'>🏀 Fantasy NBA <span style='color: #4299e1;'>H2H</span> Draft Tool</h1>", unsafe_allow_html=True)
 st.markdown("<p style='color: #a0aec0; margin-bottom: 30px;'>Advanced 9-Cat Projections & Live Analytics Dashboard</p>", unsafe_allow_html=True)
 
+# שינוי השאילתה כדי לשלוף גם את המספרים הריאליים בנוסף ל-Z-Scores
 query = f'''
 WITH PlayerPool AS (
     SELECT p.Player_ID, p.Full_Name, p.Team, p.Position, pr.* 
@@ -308,11 +327,17 @@ LeagueDeviations AS (
 ),
 ZScores AS (
     SELECT pi.Player_ID, pi.Full_Name as Player, pi.Team, pi.Position, pi.Games_Played, pi.Rank as ADP,
+           pi.PTS, pi.REB, pi.AST, pi.STL, pi.BLK, pi.Three_PM, pi.TOV,
+           IFNULL(pi.FG_Made / NULLIF(pi.FG_Att, 0), 0) as FG_Pct,
+           IFNULL(pi.FT_Made / NULLIF(pi.FT_Att, 0), 0) as FT_Pct,
            ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS, ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB, ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST, ROUND(((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0)), 2) as zSTL, ROUND(((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0)), 2) as zBLK, ROUND(((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0)), 2) as z3PM, ROUND((((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1), 2) as zTOV, ROUND(((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0)), 2) as zFG, ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0)), 2) as zFT
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
-SELECT Player_ID, Player, Team, Position, Games_Played, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value, zPTS, zREB, zAST, zSTL, zBLK, z3PM, zTOV, zFG, zFT FROM ZScores;
+SELECT Player_ID, Player, Team, Position, Games_Played, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value, 
+       PTS, REB, AST, STL, BLK, Three_PM, TOV, FG_Pct, FT_Pct,
+       zPTS, zREB, zAST, zSTL, zBLK, z3PM, zTOV, zFG, zFT 
+FROM ZScores;
 '''
 df_board = pd.read_sql(query, conn)
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
@@ -409,15 +434,18 @@ def render_player_row(idx, row, is_wl=False):
     r_cols[7].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
     r_cols[8].markdown(f"<div class='small-font center-text total-value'>{row['Total_Value']:.2f}</div>", unsafe_allow_html=True)
     r_cols[9].markdown(f"<div class='small-font center-text durant-value' title='DURANT: ציון וואקום ללא הקטגוריה החלשה ביותר'>{row['Durant']:.2f}</div>", unsafe_allow_html=True)
-    r_cols[10].markdown(f"<div class='small-font center-text'>{color_z_score(row['zPTS'])}</div>", unsafe_allow_html=True)
-    r_cols[11].markdown(f"<div class='small-font center-text'>{color_z_score(row['zREB'])}</div>", unsafe_allow_html=True)
-    r_cols[12].markdown(f"<div class='small-font center-text'>{color_z_score(row['zAST'])}</div>", unsafe_allow_html=True)
-    r_cols[13].markdown(f"<div class='small-font center-text'>{color_z_score(row['zSTL'])}</div>", unsafe_allow_html=True)
-    r_cols[14].markdown(f"<div class='small-font center-text'>{color_z_score(row['zBLK'])}</div>", unsafe_allow_html=True)
-    r_cols[15].markdown(f"<div class='small-font center-text'>{color_z_score(row['z3PM'])}</div>", unsafe_allow_html=True)
-    r_cols[16].markdown(f"<div class='small-font center-text'>{color_z_score(row['zTOV'])}</div>", unsafe_allow_html=True) 
-    r_cols[17].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFG'])}</div>", unsafe_allow_html=True)
-    r_cols[18].markdown(f"<div class='small-font center-text'>{color_z_score(row['zFT'])}</div>", unsafe_allow_html=True)
+    
+    # השתמשנו בפונקציה החדשה שלנו שתומכת גם בהצגת הממוצעים
+    r_cols[10].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['PTS'], row['zPTS'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[11].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['REB'], row['zREB'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[12].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['AST'], row['zAST'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[13].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['STL'], row['zSTL'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[14].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['BLK'], row['zBLK'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[15].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['Three_PM'], row['z3PM'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[16].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['TOV'], row['zTOV'], show_raw_stats)}</div>", unsafe_allow_html=True) 
+    r_cols[17].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['FG_Pct'], row['zFG'], show_raw_stats, is_pct=True)}</div>", unsafe_allow_html=True)
+    r_cols[18].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['FT_Pct'], row['zFT'], show_raw_stats, is_pct=True)}</div>", unsafe_allow_html=True)
+    
     with r_cols[19]:
         c1, c2 = st.columns([1, 1.5])
         is_starred = row['Player_ID'] in st.session_state.watchlist
