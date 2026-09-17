@@ -78,23 +78,68 @@ def setup_database():
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE Players (Player_ID INTEGER PRIMARY KEY AUTOINCREMENT, Full_Name TEXT UNIQUE NOT NULL, Team TEXT, Position TEXT, Injury_Status TEXT)''')
     cursor.execute('''CREATE TABLE Projections (Player_ID INTEGER, Rank REAL, Games_Played REAL, MIN REAL, PTS REAL, REB REAL, AST REAL, STL REAL, BLK REAL, Three_PM REAL, FG_Made REAL, FG_Att REAL, FT_Made REAL, FT_Att REAL, TOV REAL, FOREIGN KEY (Player_ID) REFERENCES Players(Player_ID))''')
-    with open('nba_data.csv', 'r', encoding='utf-8-sig') as f:
-        lines = [line.strip().strip('"') for line in f.readlines()]
-    df_raw = pd.read_csv(io.StringIO('\n'.join(lines)))
+    
+    # טעינת הנתונים (דילוג על שורת הכותרות המקובצת של Stocks & Buckets)
+    df_raw = pd.read_csv('nba_data.csv', header=1)
     df_raw.columns = df_raw.columns.str.strip()
     df_clean = df_raw.drop_duplicates(subset=['Player'], keep='first').copy()
     
-    # נרמול עמדות לפורמט אחיד של פסיקים (הכנה לקבצים מקצועיים)
+    # נרמול עמדות (הופך C/PF ל-C, PF)
     df_clean['Pos'] = df_clean['Pos'].astype(str).str.replace('/', ',').str.replace('-', ',')
     
+    # ניקוי ADP - שליפת ה-ADP האמיתי בלבד (המספר השמאלי)
+    def clean_adp(val):
+        val = str(val).strip()
+        if '+' in val:
+            val = val.split('+')[0]
+        elif '-' in val:
+            val = val.split('-')[0]
+        try: return float(val.strip())
+        except: return 999
+    
+    df_clean['ADPConsensus'] = df_clean['ADPConsensus'].apply(clean_adp)
+    
+    # ניקוי אחוזים (הסרת % והמרה לעשרוני)
+    def parse_pct(val):
+        if pd.isna(val) or val == '-': return 0.0
+        val = str(val).replace('%', '').strip()
+        try: return float(val) / 100.0
+        except: return 0.0
+        
+    df_clean['FG%'] = df_clean['FG%'].apply(parse_pct)
+    df_clean['FT%'] = df_clean['FT%'].apply(parse_pct)
+    
+    # המרת קליעות למספרים נקיים
+    df_clean['FGM'] = pd.to_numeric(df_clean['FGM'], errors='coerce').fillna(0)
+    df_clean['FTM'] = pd.to_numeric(df_clean['FTM'], errors='coerce').fillna(0)
+    
+    # חישוב זריקות לסל ועונשין (Att) מתוך הקליעות והאחוזים
+    df_clean['FGA'] = df_clean.apply(lambda row: row['FGM'] / row['FG%'] if row['FG%'] > 0 else 0, axis=1)
+    df_clean['FTA'] = df_clean.apply(lambda row: row['FTM'] / row['FT%'] if row['FT%'] > 0 else 0, axis=1)
+    
+    # מיפוי העמודות של Stocks & Buckets למנוע שלנו
     column_mapping = {
-        'Rk': 'Rank', 'Player': 'Full_Name', 'Team': 'Team', 'Pos': 'Position', 
-        'G': 'Games_Played', 'MP': 'MIN', 'PTS': 'PTS', 'TRB': 'REB', 'AST': 'AST', 
-        'STL': 'STL', 'BLK': 'BLK', '3P': 'Three_PM', 'FG': 'FG_Made', 
-        'FGA': 'FG_Att', 'FT': 'FT_Made', 'FTA': 'FT_Att', 'TOV': 'TOV'
+        'ADPConsensus': 'Rank', 
+        'Player': 'Full_Name', 
+        'Team': 'Team', 
+        'Pos': 'Position', 
+        'GP': 'Games_Played', 
+        'MPG': 'MIN', 
+        'PTS': 'PTS', 
+        'REB': 'REB', 
+        'AST': 'AST', 
+        'STL': 'STL', 
+        'BLK': 'BLK', 
+        '3PM': 'Three_PM', 
+        'FGM': 'FG_Made', 
+        'FGA': 'FG_Att', 
+        'FTM': 'FT_Made', 
+        'FTA': 'FT_Att', 
+        'TO': 'TOV'
     }
+    
     df_renamed = df_clean.rename(columns=column_mapping).fillna(0)
-    df_renamed['Rank'] = pd.to_numeric(df_renamed['Rank'], errors='coerce').fillna(999)
+    
     for index, row in df_renamed.iterrows():
         cursor.execute('INSERT OR IGNORE INTO Players (Full_Name, Team, Position, Injury_Status) VALUES (?, ?, ?, ?)', (str(row['Full_Name']), str(row['Team']).strip(), str(row['Position']), 'Healthy'))
     players_db = pd.read_sql('SELECT Player_ID, Full_Name FROM Players', conn)
