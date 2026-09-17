@@ -79,25 +79,40 @@ def setup_database():
     cursor.execute('''CREATE TABLE Players (Player_ID INTEGER PRIMARY KEY AUTOINCREMENT, Full_Name TEXT UNIQUE NOT NULL, Team TEXT, Position TEXT, Injury_Status TEXT)''')
     cursor.execute('''CREATE TABLE Projections (Player_ID INTEGER, Rank REAL, Games_Played REAL, MIN REAL, PTS REAL, REB REAL, AST REAL, STL REAL, BLK REAL, Three_PM REAL, FG_Made REAL, FG_Att REAL, FT_Made REAL, FT_Att REAL, TOV REAL, FOREIGN KEY (Player_ID) REFERENCES Players(Player_ID))''')
     
-    # טעינת הנתונים (דילוג על שורת הכותרות המקובצת של Stocks & Buckets)
-    df_raw = pd.read_csv('nba_data.csv', header=1)
-    df_raw.columns = df_raw.columns.str.strip()
+    # טעינת הנתונים בצורה חכמה (מתמודד עם קובץ מסודר או עם כותרת כפולה)
+    try:
+        df_raw = pd.read_csv('nba_data.csv', encoding='utf-8-sig')
+        df_raw.columns = df_raw.columns.str.strip()
+        if 'Player' not in df_raw.columns:
+            df_raw = pd.read_csv('nba_data.csv', header=1, encoding='utf-8-sig')
+            df_raw.columns = df_raw.columns.str.strip()
+    except Exception:
+        with open('nba_data.csv', 'r', encoding='utf-8-sig') as f:
+            lines = [line.strip().strip('"') for line in f.readlines()]
+        df_raw = pd.read_csv(io.StringIO('\n'.join(lines)))
+        df_raw.columns = df_raw.columns.str.strip()
+        if 'Player' not in df_raw.columns:
+            df_raw = pd.read_csv(io.StringIO('\n'.join(lines)), header=1)
+            df_raw.columns = df_raw.columns.str.strip()
+
     df_clean = df_raw.drop_duplicates(subset=['Player'], keep='first').copy()
     
     # נרמול עמדות (הופך C/PF ל-C, PF)
     df_clean['Pos'] = df_clean['Pos'].astype(str).str.replace('/', ',').str.replace('-', ',')
     
-    # ניקוי ADP - שליפת ה-ADP האמיתי בלבד (המספר השמאלי)
+    # ניקוי ADP - שליפת ה-ADP האמיתי בלבד (המספר השמאלי) מתעלם מהפלוסים
     def clean_adp(val):
         val = str(val).strip()
-        if '+' in val:
-            val = val.split('+')[0]
-        elif '-' in val:
-            val = val.split('-')[0]
+        if '+' in val: val = val.split('+')[0]
+        elif '-' in val: val = val.split('-')[0]
         try: return float(val.strip())
         except: return 999
     
-    df_clean['ADPConsensus'] = df_clean['ADPConsensus'].apply(clean_adp)
+    if 'ADPConsensus' in df_clean.columns:
+        df_clean['ADPConsensus'] = df_clean['ADPConsensus'].apply(clean_adp)
+    else:
+        # Fallback in case standard Rank column is used instead
+        df_clean['ADPConsensus'] = df_clean.get('Rank', 999).apply(clean_adp)
     
     # ניקוי אחוזים (הסרת % והמרה לעשרוני)
     def parse_pct(val):
@@ -106,16 +121,14 @@ def setup_database():
         try: return float(val) / 100.0
         except: return 0.0
         
-    df_clean['FG%'] = df_clean['FG%'].apply(parse_pct)
-    df_clean['FT%'] = df_clean['FT%'].apply(parse_pct)
+    df_clean['FG%'] = df_clean.get('FG%', pd.Series(0, index=df_clean.index)).apply(parse_pct)
+    df_clean['FT%'] = df_clean.get('FT%', pd.Series(0, index=df_clean.index)).apply(parse_pct)
     
-    # המרת קליעות למספרים נקיים
-    df_clean['FGM'] = pd.to_numeric(df_clean['FGM'], errors='coerce').fillna(0)
-    df_clean['FTM'] = pd.to_numeric(df_clean['FTM'], errors='coerce').fillna(0)
-    
-    # חישוב זריקות לסל ועונשין (Att) מתוך הקליעות והאחוזים
-    df_clean['FGA'] = df_clean.apply(lambda row: row['FGM'] / row['FG%'] if row['FG%'] > 0 else 0, axis=1)
-    df_clean['FTA'] = df_clean.apply(lambda row: row['FTM'] / row['FT%'] if row['FT%'] > 0 else 0, axis=1)
+    # המרת קליעות למספרים נקיים וחישוב זריקות (Att) מתוך הקליעות והאחוזים
+    df_clean['FGM'] = pd.to_numeric(df_clean.get('FGM', df_clean.get('FG', 0)), errors='coerce').fillna(0)
+    df_clean['FTM'] = pd.to_numeric(df_clean.get('FTM', df_clean.get('FT', 0)), errors='coerce').fillna(0)
+    df_clean['FGA'] = df_clean.apply(lambda row: row['FGM'] / row['FG%'] if row.get('FG%', 0) > 0 else (pd.to_numeric(row.get('FGA', 0), errors='coerce') or 0), axis=1)
+    df_clean['FTA'] = df_clean.apply(lambda row: row['FTM'] / row['FT%'] if row.get('FT%', 0) > 0 else (pd.to_numeric(row.get('FTA', 0), errors='coerce') or 0), axis=1)
     
     # מיפוי העמודות של Stocks & Buckets למנוע שלנו
     column_mapping = {
@@ -305,7 +318,6 @@ df_board = pd.read_sql(query, conn)
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
 # --- חישוב DURANT (Minus 1 Value) ---
-# מסכמים את ציוני ה-Z של השחקן בכל הקטגוריות ומחסירים את הציון הנמוך ביותר שלו
 z_columns = ['zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zTOV', 'zFG', 'zFT']
 df_board['Durant'] = (df_board[z_columns].sum(axis=1) - df_board[z_columns].min(axis=1)).round(2)
 
@@ -375,7 +387,7 @@ if num_my_players > 0:
 
 df_board['Total_Value'] = (df_board['Total_Value'] + ((df_board['PO_Games'] - 11) * 0.05)).round(2)
 
-# --- עמודות התצוגה המעודכנות (נוספה עמודת DUR) ---
+# --- עמודות התצוגה המעודכנות ---
 col_widths = [0.4, 1.8, 0.6, 0.4, 0.5, 0.4, 0.4, 0.4, 0.6, 0.6, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("T", "Tier"), 
@@ -443,7 +455,6 @@ if not wl_df.empty:
             render_player_row(idx, row, is_wl=True)
 else:
     st.markdown("<div style='background-color: #1a202c; padding: 10px; border-radius: 6px; border: 1px dashed #2d3748; color: #718096; text-align: center; font-size: 13px;'>הרשימה ריקה. הוסף שחקנים מהטבלה למטה בעזרת כפתור ה-⭐ כדי לעקוב אחריהם בקלות.</div>", unsafe_allow_html=True)
-
 
 # --- MAIN TABLE ---
 st.markdown("---")
