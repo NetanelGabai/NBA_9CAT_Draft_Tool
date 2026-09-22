@@ -45,7 +45,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# פונקציית עיצוב חכמה (צובעת לפי Z-score אבל מציגה את מה שהמשתמש בחר)
+# פונקציית עיצוב חכמה
 def format_stat_cell(raw_val, z_val, show_raw, is_pct=False):
     try:
         v = float(z_val)
@@ -101,58 +101,49 @@ def setup_database():
     
     try:
         df_raw = pd.read_csv('nba_data.csv', encoding='utf-8-sig')
-        df_raw.columns = df_raw.columns.str.strip()
-        if 'Player' not in df_raw.columns:
+        df_raw.columns = df_raw.columns.str.strip().str.upper()
+        if 'PLAYER' not in df_raw.columns:
             df_raw = pd.read_csv('nba_data.csv', header=1, encoding='utf-8-sig')
-            df_raw.columns = df_raw.columns.str.strip()
+            df_raw.columns = df_raw.columns.str.strip().str.upper()
     except Exception:
-        with open('nba_data.csv', 'r', encoding='utf-8-sig') as f:
-            lines = [line.strip().strip('"') for line in f.readlines()]
-        df_raw = pd.read_csv(io.StringIO('\n'.join(lines)))
-        df_raw.columns = df_raw.columns.str.strip()
-        if 'Player' not in df_raw.columns:
-            df_raw = pd.read_csv(io.StringIO('\n'.join(lines)), header=1)
-            df_raw.columns = df_raw.columns.str.strip()
+        return conn
 
-    df_clean = df_raw.drop_duplicates(subset=['Player'], keep='first').copy()
+    df_clean = df_raw.drop_duplicates(subset=['PLAYER'], keep='first').copy()
     
-    df_clean['Pos'] = df_clean['Pos'].astype(str).str.replace('/', ',').str.replace('-', ',')
+    # נרמול עמדות
+    df_clean['POS'] = df_clean['POS'].astype(str).str.replace('/', ',').str.replace('-', ',')
     
-    def clean_adp(val):
+    # תיקון קיצורי הקבוצות של Hashtag
+    team_corrections = {'SA': 'SAS', 'GS': 'GSW', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHA': 'CHA', 'BKN': 'BKN'}
+    df_clean['TEAM'] = df_clean['TEAM'].astype(str).str.strip().replace(team_corrections)
+    
+    # חילוץ נתוני הקליעות והזריקות מתוך פורמט הסוגריים
+    def extract_shooting_stats(val):
         val = str(val).strip()
-        if '+' in val: val = val.split('+')[0]
-        elif '-' in val: val = val.split('-')[0]
-        try: return float(val.strip())
-        except: return 999
+        if '(' in val and ')' in val:
+            try:
+                pct_part = float(val.split('(')[0])
+                makes_atts = val.split('(')[1].replace(')', '').split('/')
+                makes = float(makes_atts[0])
+                atts = float(makes_atts[1])
+                return pct_part, makes, atts
+            except:
+                pass
+        return 0.0, 0.0, 0.0
+
+    df_clean[['FG_Pct', 'FGM', 'FGA']] = df_clean['FG%'].apply(lambda x: pd.Series(extract_shooting_stats(x)))
+    df_clean[['FT_Pct', 'FTM', 'FTA']] = df_clean['FT%'].apply(lambda x: pd.Series(extract_shooting_stats(x)))
     
-    if 'ADPConsensus' in df_clean.columns:
-        df_clean['ADPConsensus'] = df_clean['ADPConsensus'].apply(clean_adp)
-    else:
-        df_clean['ADPConsensus'] = df_clean.get('Rank', 999).apply(clean_adp)
-    
-    def parse_pct(val):
-        if pd.isna(val) or val == '-': return 0.0
-        val = str(val).replace('%', '').strip()
-        try: return float(val) / 100.0
-        except: return 0.0
-        
-    df_clean['FG%'] = df_clean.get('FG%', pd.Series(0, index=df_clean.index)).apply(parse_pct)
-    df_clean['FT%'] = df_clean.get('FT%', pd.Series(0, index=df_clean.index)).apply(parse_pct)
-    
-    df_clean['FGM'] = pd.to_numeric(df_clean.get('FGM', df_clean.get('FG', 0)), errors='coerce').fillna(0)
-    df_clean['FTM'] = pd.to_numeric(df_clean.get('FTM', df_clean.get('FT', 0)), errors='coerce').fillna(0)
-    df_clean['FGA'] = df_clean.apply(lambda row: row['FGM'] / row['FG%'] if row.get('FG%', 0) > 0 else (pd.to_numeric(row.get('FGA', 0), errors='coerce') or 0), axis=1)
-    df_clean['FTA'] = df_clean.apply(lambda row: row['FTM'] / row['FT%'] if row.get('FT%', 0) > 0 else (pd.to_numeric(row.get('FTA', 0), errors='coerce') or 0), axis=1)
-    
+    # מיפוי העמודות
     column_mapping = {
-        'ADPConsensus': 'Rank', 
-        'Player': 'Full_Name', 
-        'Team': 'Team', 
-        'Pos': 'Position', 
+        'ADP': 'Rank', 
+        'PLAYER': 'Full_Name', 
+        'TEAM': 'Team', 
+        'POS': 'Position', 
         'GP': 'Games_Played', 
         'MPG': 'MIN', 
         'PTS': 'PTS', 
-        'REB': 'REB', 
+        'TREB': 'REB', 
         'AST': 'AST', 
         'STL': 'STL', 
         'BLK': 'BLK', 
@@ -168,6 +159,7 @@ def setup_database():
     
     for index, row in df_renamed.iterrows():
         cursor.execute('INSERT OR IGNORE INTO Players (Full_Name, Team, Position, Injury_Status) VALUES (?, ?, ?, ?)', (str(row['Full_Name']), str(row['Team']).strip(), str(row['Position']), 'Healthy'))
+    
     players_db = pd.read_sql('SELECT Player_ID, Full_Name FROM Players', conn)
     df_merged = pd.merge(df_renamed, players_db, on='Full_Name', how='inner')
     cols_to_keep = ['Player_ID', 'Rank', 'Games_Played', 'MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'FG_Made', 'FG_Att', 'FT_Made', 'FT_Att', 'TOV']
@@ -221,7 +213,6 @@ if st.sidebar.button("↩️ ביטול בחירה אחרונה (Undo)", use_con
 
 st.sidebar.divider()
 
-# מתג תצוגה חדש - מאפשר לראות את המספרים האמיתיים!
 show_raw_stats = st.sidebar.toggle("🔢 הצג ממוצעים למשחק (Raw)", value=True, help="החלף בין תצוגת Z-Scores לתצוגת ממוצעים ריאליים. הצבעים עדיין משקפים את איכות ה-Z-Score האמיתית!")
 
 st.sidebar.divider()
@@ -302,7 +293,6 @@ next_my_pick = my_future_picks[0] if my_future_picks else st.session_state.globa
 st.markdown("<h1 style='color: #f7fafc; margin-bottom: 0;'>🏀 Fantasy NBA <span style='color: #4299e1;'>H2H</span> Draft Tool</h1>", unsafe_allow_html=True)
 st.markdown("<p style='color: #a0aec0; margin-bottom: 30px;'>Advanced 9-Cat Projections & Live Analytics Dashboard</p>", unsafe_allow_html=True)
 
-# שינוי השאילתה כדי לשלוף גם את המספרים הריאליים בנוסף ל-Z-Scores
 query = f'''
 WITH PlayerPool AS (
     SELECT p.Player_ID, p.Full_Name, p.Team, p.Position, pr.* 
@@ -342,7 +332,7 @@ FROM ZScores;
 df_board = pd.read_sql(query, conn)
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
-# --- חישוב DURANT (Minus 1 Value) ---
+# --- חישוב DURANT ---
 z_columns = ['zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zTOV', 'zFG', 'zFT']
 df_board['Durant'] = (df_board[z_columns].sum(axis=1) - df_board[z_columns].min(axis=1)).round(2)
 
@@ -412,7 +402,7 @@ if num_my_players > 0:
 
 df_board['Total_Value'] = (df_board['Total_Value'] + ((df_board['PO_Games'] - 11) * 0.05)).round(2)
 
-# --- עמודות התצוגה המעודכנות ---
+# --- עמודות התצוגה ---
 col_widths = [0.4, 1.8, 0.6, 0.4, 0.5, 0.4, 0.4, 0.4, 0.6, 0.6, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("T", "Tier"), 
@@ -433,9 +423,8 @@ def render_player_row(idx, row, is_wl=False):
     r_cols[6].markdown(f"<div class='small-font center-text' title='סיכון פציעה/מנוחות'>{row['Risk']}</div>", unsafe_allow_html=True) 
     r_cols[7].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
     r_cols[8].markdown(f"<div class='small-font center-text total-value'>{row['Total_Value']:.2f}</div>", unsafe_allow_html=True)
-    r_cols[9].markdown(f"<div class='small-font center-text durant-value' title='DURANT: ציון וואקום ללא הקטגוריה החלשה ביותר'>{row['Durant']:.2f}</div>", unsafe_allow_html=True)
+    r_cols[9].markdown(f"<div class='small-font center-text durant-value' title='DURANT'>{row['Durant']:.2f}</div>", unsafe_allow_html=True)
     
-    # השתמשנו בפונקציה החדשה שלנו שתומכת גם בהצגת הממוצעים
     r_cols[10].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['PTS'], row['zPTS'], show_raw_stats)}</div>", unsafe_allow_html=True)
     r_cols[11].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['REB'], row['zREB'], show_raw_stats)}</div>", unsafe_allow_html=True)
     r_cols[12].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['AST'], row['zAST'], show_raw_stats)}</div>", unsafe_allow_html=True)
@@ -509,7 +498,7 @@ with st.container(height=500):
 
 st.markdown("---")
 
-# --- DASHBOARD LAYOUT (2 Columns) ---
+# --- DASHBOARD LAYOUT ---
 dash_left, dash_right = st.columns([5, 6])
 
 with dash_left:
