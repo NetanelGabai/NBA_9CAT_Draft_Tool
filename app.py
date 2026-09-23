@@ -611,28 +611,66 @@ with dash_right:
 # --- PLAYER SHAPE STUDIO ---
 st.markdown("---")
 st.markdown("### 🕸️ מעבדת סגנונות משחק (Player Shape Studio)")
-st.markdown("מצא תחליפים זולים בסיבובים מאוחרים בעזרת מנוע דמיון קוסינוס (Cosine Similarity)")
+st.markdown("מצא תחליפים זולים בסיבובים מאוחרים בעזרת מנוע דמיון משולב (Cosine + Euclidean)")
 
 shape_cols = ['zPTS', 'z3PM', 'zREB', 'zAST', 'zSTL', 'zBLK', 'zFG', 'zFT']
 display_cols = ['PTS', '3PM', 'REB', 'AST', 'STL', 'BLK', 'FG IMP', 'FT IMP']
 
 df_shape = df_board.copy()
+# חישוב אחוזונים (0-100)
 for col in shape_cols:
     df_shape[f'p_{col}'] = df_shape[col].rank(pct=True) * 100
 
+# אלגוריתם משופר (Cosine + עונש על מרחק מוחלט)
 def calculate_similarity(player1_id, player2_id):
     p1_data = df_shape[df_shape['Player_ID'] == player1_id][[f'p_{c}' for c in shape_cols]].values[0]
     p2_data = df_shape[df_shape['Player_ID'] == player2_id][[f'p_{c}' for c in shape_cols]].values[0]
     
+    # Cosine Similarity (בודק צורה/כיוון)
     dot_product = np.dot(p1_data, p2_data)
     norm_a = np.linalg.norm(p1_data)
     norm_b = np.linalg.norm(p2_data)
+    cosine_sim = dot_product / (norm_a * norm_b) if (norm_a * norm_b) != 0 else 0
     
-    if norm_a == 0 or norm_b == 0:
-        return 0
-    return dot_product / (norm_a * norm_b)
+    # Euclidean Penalty (קנס על פערים גדולים ברמה האבסולוטית)
+    # נחשב את המרחק הממוצע בין האחוזונים ונמיר אותו למכפיל עונש
+    avg_diff = np.mean(np.abs(p1_data - p2_data))
+    penalty = max(0, 1 - (avg_diff / 100)) 
+    
+    # שקלול: 70% צורה, 30% קרבה אבסולוטית
+    final_sim = (cosine_sim * 0.7) + (penalty * 0.3)
+    return final_sim
 
-shape_col1, shape_col2 = st.columns([1, 2])
+# פונקציה לייצור ה-SHAPE READ
+def get_shape_read(percentiles):
+    p_dict = dict(zip(display_cols, percentiles))
+    sorted_p = sorted(p_dict.items(), key=lambda x: x[1], reverse=True)
+    
+    # החלטה על "טייטל" השחקן לפי החוזקות
+    title = "BALANCED PLAYER"
+    if p_dict['PTS'] > 85 and p_dict['3PM'] > 80: title = "VOLUME SCORER"
+    elif p_dict['REB'] > 85 and p_dict['BLK'] > 80: title = "DEFENSIVE ANCHOR"
+    elif p_dict['AST'] > 85 and p_dict['STL'] > 80: title = "PLAYMAKER"
+    elif p_dict['3PM'] > 80 and p_dict['STL'] > 80: title = "3 & D WING"
+    
+    top_3 = sorted_p[:3]
+    bottom_1 = sorted_p[-1]
+    
+    html = f"""
+    <div style='background-color: #121826; border-radius: 12px; padding: 20px; border: 1px solid rgba(255,255,255,0.05); height: 100%;'>
+        <div style='font-size: 10px; color: #718096; letter-spacing: 1px; margin-bottom: 5px; font-weight: bold;'>SHAPE READ</div>
+        <div style='font-size: 18px; font-weight: 900; color: #ecc94b; line-height: 1.1;'>{title.split(' ')[0]}</div>
+        <div style='font-size: 18px; font-weight: 900; color: #9f7aea; line-height: 1.1; margin-bottom: 25px;'>{' '.join(title.split(' ')[1:]) if len(title.split(' ')) > 1 else ''}</div>
+    """
+    
+    for cat, val in top_3:
+        html += f"<div style='display: flex; justify-content: space-between; margin-bottom: 12px;'><span style='color: #e2e8f0; font-weight: bold; font-size: 13px;'>{cat}</span><span style='color: #ecc94b; font-weight: bold; font-size: 15px;'>{int(val)}TH PCTL</span></div>"
+    
+    html += f"<div style='display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);'><span style='color: #a0aec0; font-weight: bold; font-size: 13px;'>{bottom_1[0]}</span><span style='color: #9f7aea; font-weight: bold; font-size: 15px;'>{int(bottom_1[1])}TH PCTL</span></div>"
+    html += "</div>"
+    return html
+
+shape_col1, shape_col2, shape_col3 = st.columns([1.2, 1, 2]) # הוספנו עמודה אמצעית ל-Shape Read
 
 with shape_col1:
     target_player_name = st.selectbox("בחר שחקן יעד לניתוח:", df_shape['Player'].sort_values().tolist())
@@ -655,7 +693,7 @@ with shape_col1:
     df_sim = pd.DataFrame(similarities)
     df_sim_later = df_sim[df_sim['ADP'] > target_adp + 12].sort_values(by='Match', ascending=False).head(5)
     
-    st.markdown(f"#### התאמות לסיבובים מאוחרים (Later-Round Matches)")
+    st.markdown(f"#### התאמות (Later-Round)")
     for i, match in df_sim_later.iterrows():
         st.markdown(f"""
         <div style='background-color: #1a202c; padding: 10px; border-radius: 6px; margin-bottom: 8px; border-left: 4px solid #ecc94b; display: flex; justify-content: space-between;'>
@@ -671,15 +709,16 @@ with shape_col1:
 
 with shape_col2:
     target_percentiles = target_player[[f'p_{c}' for c in shape_cols]].values.flatten()
-    # עיצוב המספרים כאחוזים כדי שיופיעו על הגרף
+    st.markdown(get_shape_read(target_percentiles), unsafe_allow_html=True)
+
+with shape_col3:
     target_text = [f"{int(x)}%" for x in target_percentiles]
-    
     fig = go.Figure()
 
     fig.add_trace(go.Scatterpolar(
         r=target_percentiles,
         theta=display_cols,
-        mode='lines+markers+text', # פקודה קריטית להצגת המספרים והנקודות
+        mode='lines+markers+text',
         text=target_text,
         textposition="top center",
         textfont=dict(color='#ecc94b', size=11, family="Arial, sans-serif"),
@@ -712,18 +751,9 @@ with shape_col2:
 
     fig.update_layout(
         polar=dict(
-            bgcolor='rgba(0,0,0,0)', # מבטל את העיגול הלבן המכוער
-            radialaxis=dict(
-                visible=True,
-                range=[0, 100],
-                showticklabels=False,
-                gridcolor='rgba(255,255,255,0.1)',
-                linecolor='rgba(255,255,255,0.1)'
-            ),
-            angularaxis=dict(
-                gridcolor='rgba(255,255,255,0.1)',
-                linecolor='rgba(255,255,255,0.1)'
-            )
+            bgcolor='rgba(0,0,0,0)',
+            radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.1)'),
+            angularaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.1)')
         ),
         showlegend=True,
         paper_bgcolor='rgba(0,0,0,0)',
