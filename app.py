@@ -626,27 +626,21 @@ def calculate_similarity(player1_id, player2_id):
     p1_data = df_shape[df_shape['Player_ID'] == player1_id][[f'p_{c}' for c in shape_cols]].values[0]
     p2_data = df_shape[df_shape['Player_ID'] == player2_id][[f'p_{c}' for c in shape_cols]].values[0]
     
-    # Cosine Similarity (בודק צורה/כיוון)
     dot_product = np.dot(p1_data, p2_data)
     norm_a = np.linalg.norm(p1_data)
     norm_b = np.linalg.norm(p2_data)
     cosine_sim = dot_product / (norm_a * norm_b) if (norm_a * norm_b) != 0 else 0
     
-    # Euclidean Penalty (קנס על פערים גדולים ברמה האבסולוטית)
-    # נחשב את המרחק הממוצע בין האחוזונים ונמיר אותו למכפיל עונש
     avg_diff = np.mean(np.abs(p1_data - p2_data))
     penalty = max(0, 1 - (avg_diff / 100)) 
     
-    # שקלול: 70% צורה, 30% קרבה אבסולוטית
     final_sim = (cosine_sim * 0.7) + (penalty * 0.3)
     return final_sim
 
-# פונקציה לייצור ה-SHAPE READ
 def get_shape_read(percentiles):
     p_dict = dict(zip(display_cols, percentiles))
     sorted_p = sorted(p_dict.items(), key=lambda x: x[1], reverse=True)
     
-    # החלטה על "טייטל" השחקן לפי החוזקות
     title = "BALANCED PLAYER"
     if p_dict['PTS'] > 85 and p_dict['3PM'] > 80: title = "VOLUME SCORER"
     elif p_dict['REB'] > 85 and p_dict['BLK'] > 80: title = "DEFENSIVE ANCHOR"
@@ -670,7 +664,7 @@ def get_shape_read(percentiles):
     html += "</div>"
     return html
 
-shape_col1, shape_col2, shape_col3 = st.columns([1.2, 1, 2]) # הוספנו עמודה אמצעית ל-Shape Read
+shape_col1, shape_col2, shape_col3 = st.columns([1.2, 1, 2])
 
 with shape_col1:
     target_player_name = st.selectbox("בחר שחקן יעד לניתוח:", df_shape['Player'].sort_values().tolist())
@@ -730,10 +724,15 @@ with shape_col3:
     ))
     
     if not df_sim_later.empty:
-        best_match_name = df_sim_later.iloc[0]['Player']
-        best_match = df_shape[df_shape['Player'] == best_match_name].iloc[0]
+        # --- תוספת חדשה: בחירת השחקן להשוואה על הגרף ---
+        compare_match_name = st.selectbox("🔍 בחר שחקן מהרשימה להשוואה בגרף:", df_sim_later['Player'].tolist())
+        
+        best_match = df_shape[df_shape['Player'] == compare_match_name].iloc[0]
         best_match_percentiles = best_match[[f'p_{c}' for c in shape_cols]].values.flatten()
         best_match_text = [f"{int(x)}%" for x in best_match_percentiles]
+        
+        # שליפת אחוז ההתאמה הספציפי עבור התווית
+        match_pct = df_sim_later[df_sim_later['Player'] == compare_match_name].iloc[0]['Match']
         
         fig.add_trace(go.Scatterpolar(
             r=best_match_percentiles,
@@ -743,7 +742,7 @@ with shape_col3:
             textposition="bottom center",
             textfont=dict(color='#9f7aea', size=10, family="Arial, sans-serif"),
             fill='toself',
-            name=f"{best_match_name} ({df_sim_later.iloc[0]['Match']:.1f}%)",
+            name=f"{compare_match_name} ({match_pct:.1f}%)",
             line_color='#9f7aea',
             fillcolor='rgba(159, 122, 234, 0.2)',
             marker=dict(size=6)
