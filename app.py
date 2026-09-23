@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import io
+import numpy as np
+import plotly.graph_objects as go
 
 # הגדרות עמוד פרימיום
 st.set_page_config(page_title="Fantasy NBA Draft Tool", page_icon="🏀", layout="wide", initial_sidebar_state="expanded")
@@ -45,7 +47,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# פונקציית עיצוב חכמה
+# פונקציית עיצוב חכמה (צובעת לפי Z-score אבל מציגה את מה שהמשתמש בחר)
 def format_stat_cell(raw_val, z_val, show_raw, is_pct=False):
     try:
         v = float(z_val)
@@ -113,11 +115,11 @@ def setup_database():
     # נרמול עמדות
     df_clean['POS'] = df_clean['POS'].astype(str).str.replace('/', ',').str.replace('-', ',')
     
-    # תיקון קיצורי הקבוצות של Hashtag
+    # תיקון שמות קבוצות של Hashtag
     team_corrections = {'SA': 'SAS', 'GS': 'GSW', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHA': 'CHA', 'BKN': 'BKN'}
     df_clean['TEAM'] = df_clean['TEAM'].astype(str).str.strip().replace(team_corrections)
     
-    # חילוץ נתוני הקליעות והזריקות מתוך פורמט הסוגריים
+    # חילוץ נתוני הקליעות והזריקות (Hashtag Format: 0.573(10.5/18.3))
     def extract_shooting_stats(val):
         val = str(val).strip()
         if '(' in val and ')' in val:
@@ -134,7 +136,6 @@ def setup_database():
     df_clean[['FG_Pct', 'FGM', 'FGA']] = df_clean['FG%'].apply(lambda x: pd.Series(extract_shooting_stats(x)))
     df_clean[['FT_Pct', 'FTM', 'FTA']] = df_clean['FT%'].apply(lambda x: pd.Series(extract_shooting_stats(x)))
     
-    # מיפוי העמודות
     column_mapping = {
         'ADP': 'Rank', 
         'PLAYER': 'Full_Name', 
@@ -159,7 +160,6 @@ def setup_database():
     
     for index, row in df_renamed.iterrows():
         cursor.execute('INSERT OR IGNORE INTO Players (Full_Name, Team, Position, Injury_Status) VALUES (?, ?, ?, ?)', (str(row['Full_Name']), str(row['Team']).strip(), str(row['Position']), 'Healthy'))
-    
     players_db = pd.read_sql('SELECT Player_ID, Full_Name FROM Players', conn)
     df_merged = pd.merge(df_renamed, players_db, on='Full_Name', how='inner')
     cols_to_keep = ['Player_ID', 'Rank', 'Games_Played', 'MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'FG_Made', 'FG_Att', 'FT_Made', 'FT_Att', 'TOV']
@@ -606,3 +606,111 @@ with dash_right:
         FROM SlotsDefinition s
     '''
     st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, hide_index=True)
+
+
+# --- PLAYER SHAPE STUDIO ---
+st.markdown("---")
+st.markdown("### 🕸️ מעבדת סגנונות משחק (Player Shape Studio)")
+st.markdown("מצא תחליפים זולים בסיבובים מאוחרים בעזרת מנוע דמיון קוסינוס (Cosine Similarity)")
+
+shape_cols = ['zPTS', 'z3PM', 'zREB', 'zAST', 'zSTL', 'zBLK', 'zFG', 'zFT']
+display_cols = ['PTS', '3PM', 'REB', 'AST', 'STL', 'BLK', 'FG IMP', 'FT IMP']
+
+df_shape = df_board.copy()
+for col in shape_cols:
+    df_shape[f'p_{col}'] = df_shape[col].rank(pct=True) * 100
+
+def calculate_similarity(player1_id, player2_id):
+    p1_data = df_shape[df_shape['Player_ID'] == player1_id][[f'p_{c}' for c in shape_cols]].values[0]
+    p2_data = df_shape[df_shape['Player_ID'] == player2_id][[f'p_{c}' for c in shape_cols]].values[0]
+    
+    dot_product = np.dot(p1_data, p2_data)
+    norm_a = np.linalg.norm(p1_data)
+    norm_b = np.linalg.norm(p2_data)
+    
+    if norm_a == 0 or norm_b == 0:
+        return 0
+    return dot_product / (norm_a * norm_b)
+
+shape_col1, shape_col2 = st.columns([1, 2])
+
+with shape_col1:
+    target_player_name = st.selectbox("בחר שחקן יעד לניתוח:", df_shape['Player'].sort_values().tolist())
+    target_player = df_shape[df_shape['Player'] == target_player_name].iloc[0]
+    target_id = target_player['Player_ID']
+    target_adp = target_player['ADP']
+    
+    similarities = []
+    for idx, row in df_shape.iterrows():
+        if row['Player_ID'] != target_id:
+            sim = calculate_similarity(target_id, row['Player_ID'])
+            similarities.append({
+                'Player': row['Player'],
+                'Team': row['Team'],
+                'Position': row['Position'],
+                'ADP': row['ADP'],
+                'Match': sim * 100
+            })
+            
+    df_sim = pd.DataFrame(similarities)
+    df_sim_later = df_sim[df_sim['ADP'] > target_adp + 12].sort_values(by='Match', ascending=False).head(5)
+    
+    st.markdown(f"#### התאמות לסיבובים מאוחרים (Later-Round Matches)")
+    for i, match in df_sim_later.iterrows():
+        st.markdown(f"""
+        <div style='background-color: #1a202c; padding: 10px; border-radius: 6px; margin-bottom: 8px; border-left: 4px solid #ecc94b; display: flex; justify-content: space-between;'>
+            <div>
+                <span style='font-weight: bold; color: #ffffff;'>{match['Player']}</span><br>
+                <span style='font-size: 11px; color: #a0aec0;'>{match['Position']} | ADP: {int(match['ADP'])}</span>
+            </div>
+            <div style='font-size: 18px; font-weight: bold; color: #48bb78; line-height: 2;'>
+                {match['Match']:.1f}%
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+with shape_col2:
+    target_percentiles = target_player[[f'p_{c}' for c in shape_cols]].values.flatten()
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatterpolar(
+        r=target_percentiles,
+        theta=display_cols,
+        fill='toself',
+        name=target_player_name,
+        line_color='#ecc94b',
+        fillcolor='rgba(236, 201, 75, 0.2)'
+    ))
+    
+    if not df_sim_later.empty:
+        best_match_name = df_sim_later.iloc[0]['Player']
+        best_match = df_shape[df_shape['Player'] == best_match_name].iloc[0]
+        best_match_percentiles = best_match[[f'p_{c}' for c in shape_cols]].values.flatten()
+        
+        fig.add_trace(go.Scatterpolar(
+            r=best_match_percentiles,
+            theta=display_cols,
+            fill='toself',
+            name=f"{best_match_name} ({df_sim_later.iloc[0]['Match']:.1f}%)",
+            line_color='#9f7aea',
+            fillcolor='rgba(159, 122, 234, 0.2)'
+        ))
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100],
+                showticklabels=False,
+                gridcolor='rgba(255,255,255,0.1)'
+            ),
+            angularaxis=dict(gridcolor='rgba(255,255,255,0.1)')
+        ),
+        showlegend=True,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#e2e8f0'),
+        margin=dict(l=40, r=40, t=40, b=40)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
