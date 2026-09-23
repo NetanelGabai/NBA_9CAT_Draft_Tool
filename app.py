@@ -336,6 +336,20 @@ df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_game
 z_columns = ['zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zTOV', 'zFG', 'zFT']
 df_board['Durant'] = (df_board[z_columns].sum(axis=1) - df_board[z_columns].min(axis=1)).round(2)
 
+# --- מנוע ארביטראז' (ADP Arbitrage) ---
+df_board['Internal_Rank'] = df_board['Total_Value'].rank(ascending=False, method='min')
+df_board['Arbitrage'] = df_board['ADP'] - df_board['Internal_Rank']
+
+def get_arbitrage_badge(arb):
+    if pd.isna(arb): return "➖"
+    if arb >= 25: return f"🟢 +{int(arb)} (גניבה)"
+    elif arb <= -25: return f"🔴 {int(arb)} (מלכודת)"
+    elif arb > 5: return f"↗️ +{int(arb)}"
+    elif arb < -5: return f"↘️ {int(arb)}"
+    return "➖"
+
+df_board['Arb_Badge'] = df_board['Arbitrage'].apply(get_arbitrage_badge)
+
 # --- מודל Tiers ---
 df_board = df_board.sort_values(by='Total_Value', ascending=False)
 tier_map = {}
@@ -402,11 +416,11 @@ if num_my_players > 0:
 
 df_board['Total_Value'] = (df_board['Total_Value'] + ((df_board['PO_Games'] - 11) * 0.05)).round(2)
 
-# --- עמודות התצוגה ---
-col_widths = [0.4, 1.8, 0.6, 0.4, 0.5, 0.4, 0.4, 0.4, 0.6, 0.6, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
+# --- עמודות התצוגה המעודכנות ---
+col_widths = [0.4, 1.8, 0.5, 0.4, 0.4, 0.7, 0.4, 0.4, 0.5, 0.5, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("T", "Tier"), 
-    ("ADP", "ADP"), ("סטטוס", "Survive"), ("🏥", "Risk"), ("PO", "PO_Games"), 
+    ("ADP", "ADP"), ("פער שוק", "Arbitrage"), ("🏥", "Risk"), ("PO", "PO_Games"), 
     ("Z", "Total_Value"), ("DUR", "Durant"), ("PTS", "zPTS"), ("REB", "zREB"), 
     ("AST", "zAST"), ("STL", "zSTL"), ("BLK", "zBLK"), ("3PM", "z3PM"), 
     ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)
@@ -419,7 +433,7 @@ def render_player_row(idx, row, is_wl=False):
     r_cols[2].markdown(f"<div class='small-font center-text'>{row['Position']}</div>", unsafe_allow_html=True)
     r_cols[3].markdown(f"<div class='small-font center-text' title='מדרגת איכות'><span class='tier-badge'>T{row['Tier']}</span></div>", unsafe_allow_html=True)
     r_cols[4].markdown(f"<div class='small-font center-text'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
-    r_cols[5].markdown(f"<div class='small-font center-text' title='סיכוי שיישאר לתור הבא'>{row['Survive']}</div>", unsafe_allow_html=True) 
+    r_cols[5].markdown(f"<div class='small-font center-text' title='פער בין דירוג הפלטפורמה לערך האמיתי עבורך'>{row['Arb_Badge']}</div>", unsafe_allow_html=True) 
     r_cols[6].markdown(f"<div class='small-font center-text' title='סיכון פציעה/מנוחות'>{row['Risk']}</div>", unsafe_allow_html=True) 
     r_cols[7].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
     r_cols[8].markdown(f"<div class='small-font center-text total-value'>{row['Total_Value']:.2f}</div>", unsafe_allow_html=True)
@@ -562,7 +576,6 @@ with dash_left:
     else:
         st.markdown("<div style='background-color: #1a202c; padding: 20px; border-radius: 8px; border: 1px dashed #2d3748; color: #718096; text-align: center; font-size: 13px;'>סגל ריק. בחר שחקן כדי להתחיל.</div>", unsafe_allow_html=True)
 
-
 with dash_right:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("#### ⚔️ יחסי כוחות בליגה (Live H2H)")
@@ -606,7 +619,6 @@ with dash_right:
         FROM SlotsDefinition s
     '''
     st.dataframe(pd.read_sql(heatmap_query, conn), use_container_width=True, hide_index=True)
-
 
 # --- PLAYER SHAPE STUDIO ---
 st.markdown("---")
