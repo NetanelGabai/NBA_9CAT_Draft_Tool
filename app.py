@@ -671,46 +671,65 @@ with shape_col1:
 
 with shape_col2:
     target_percentiles = target_player[[f'p_{c}' for c in shape_cols]].values.flatten()
+    # עיצוב המספרים כאחוזים כדי שיופיעו על הגרף
+    target_text = [f"{int(x)}%" for x in target_percentiles]
+    
     fig = go.Figure()
 
     fig.add_trace(go.Scatterpolar(
         r=target_percentiles,
         theta=display_cols,
+        mode='lines+markers+text', # פקודה קריטית להצגת המספרים והנקודות
+        text=target_text,
+        textposition="top center",
+        textfont=dict(color='#ecc94b', size=11, family="Arial, sans-serif"),
         fill='toself',
         name=target_player_name,
         line_color='#ecc94b',
-        fillcolor='rgba(236, 201, 75, 0.2)'
+        fillcolor='rgba(236, 201, 75, 0.2)',
+        marker=dict(size=8)
     ))
     
     if not df_sim_later.empty:
         best_match_name = df_sim_later.iloc[0]['Player']
         best_match = df_shape[df_shape['Player'] == best_match_name].iloc[0]
         best_match_percentiles = best_match[[f'p_{c}' for c in shape_cols]].values.flatten()
+        best_match_text = [f"{int(x)}%" for x in best_match_percentiles]
         
         fig.add_trace(go.Scatterpolar(
             r=best_match_percentiles,
             theta=display_cols,
+            mode='lines+markers+text',
+            text=best_match_text,
+            textposition="bottom center",
+            textfont=dict(color='#9f7aea', size=10, family="Arial, sans-serif"),
             fill='toself',
             name=f"{best_match_name} ({df_sim_later.iloc[0]['Match']:.1f}%)",
             line_color='#9f7aea',
-            fillcolor='rgba(159, 122, 234, 0.2)'
+            fillcolor='rgba(159, 122, 234, 0.2)',
+            marker=dict(size=6)
         ))
 
     fig.update_layout(
         polar=dict(
+            bgcolor='rgba(0,0,0,0)', # מבטל את העיגול הלבן המכוער
             radialaxis=dict(
                 visible=True,
                 range=[0, 100],
                 showticklabels=False,
-                gridcolor='rgba(255,255,255,0.1)'
+                gridcolor='rgba(255,255,255,0.1)',
+                linecolor='rgba(255,255,255,0.1)'
             ),
-            angularaxis=dict(gridcolor='rgba(255,255,255,0.1)')
+            angularaxis=dict(
+                gridcolor='rgba(255,255,255,0.1)',
+                linecolor='rgba(255,255,255,0.1)'
+            )
         ),
         showlegend=True,
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#e2e8f0'),
-        margin=dict(l=40, r=40, t=40, b=40)
+        font=dict(color='#e2e8f0', size=12, family="Arial, sans-serif"),
+        margin=dict(l=60, r=60, t=40, b=40)
     )
     
     st.plotly_chart(fig, use_container_width=True)
