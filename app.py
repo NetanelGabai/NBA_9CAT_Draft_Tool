@@ -4,6 +4,7 @@ import sqlite3
 import io
 import numpy as np
 import plotly.graph_objects as go
+from sklearn.preprocessing import PowerTransformer
 
 # הגדרות עמוד פרימיום
 st.set_page_config(page_title="Fantasy NBA Draft Tool", page_icon="🏀", layout="wide", initial_sidebar_state="expanded")
@@ -19,7 +20,7 @@ st.markdown("""
     .player-name { font-weight: 600; color: #ffffff; font-size: 14px; }
     .player-meta { color: #718096; font-size: 11px; margin-left: 5px; }
     .total-value { font-weight: 800; color: #ecc94b; font-size: 14px; }
-    .durant-value { font-weight: 700; color: #a0aec0; font-size: 13px; }
+    .durant-value { font-weight: 700; color: #9f7aea; font-size: 13px; }
     .tier-badge { background-color: #2d3748; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #cbd5e0; font-size: 11px; }
     .center-text { text-align: center; } 
     .left-text { text-align: left; }
@@ -47,7 +48,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# פונקציית עיצוב חכמה (צובעת לפי Z-score אבל מציגה את מה שהמשתמש בחר)
 def format_stat_cell(raw_val, z_val, show_raw, is_pct=False):
     try:
         v = float(z_val)
@@ -75,7 +75,6 @@ def format_stat_cell(raw_val, z_val, show_raw, is_pct=False):
         tooltip = f"Avg: {raw_str}"
         
     return f"<span title='{tooltip}' style='color: {color}; font-weight: {weight}; cursor: help;'>{display_text}</span>"
-
 
 TEAM_NAME_TO_ABBR = {
     'ATLANTA HAWKS': 'ATL', 'BOSTON CELTICS': 'BOS', 'BROOKLYN NETS': 'BKN', 'CHARLOTTE HORNETS': 'CHA',
@@ -112,48 +111,61 @@ def setup_database():
 
     df_clean = df_raw.drop_duplicates(subset=['PLAYER'], keep='first').copy()
     
-    # נרמול עמדות
     df_clean['POS'] = df_clean['POS'].astype(str).str.replace('/', ',').str.replace('-', ',')
-    
-    # תיקון שמות קבוצות של Hashtag
     team_corrections = {'SA': 'SAS', 'GS': 'GSW', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHA': 'CHA', 'BKN': 'BKN'}
     df_clean['TEAM'] = df_clean['TEAM'].astype(str).str.strip().replace(team_corrections)
     
-    # חילוץ נתוני הקליעות והזריקות (Hashtag Format: 0.573(10.5/18.3))
+    # --- הזרקת הדירוג של 9 פנטזי (ADP Arbitrage Engine) ---
+    nine_fantasy_ranks = {
+        "Nikola Jokic": 1, "Victor Wembanyama": 2, "Shai Gilgeous-Alexander": 3, "Luka Doncic": 4,
+        "Tyrese Maxey": 5, "Jayson Tatum": 6, "Tyrese Haliburton": 7, "Kawhi Leonard": 8,
+        "Cade Cunningham": 9, "Cooper Flagg": 10, "Jalen Johnson": 11, "Anthony Edwards": 12,
+        "Scottie Barnes": 13, "Jamal Murray": 14, "Donovan Mitchell": 15, "Chet Holmgren": 16,
+        "Anthony Davis": 17, "Karl-Anthony Towns": 18, "Giannis Antetokounmpo": 19, "LaMelo Ball": 20,
+        "Trey Murphy III": 21, "Stephen Curry": 22, "Austin Reaves": 23, "Lauri Markkanen": 24,
+        "James Harden": 25, "Kevin Durant": 26, "Derrick White": 27, "Jalen Williams": 28,
+        "Trae Young": 29, "Amen Thompson": 30, "Franz Wagner": 31, "Kyrie Irving": 32,
+        "Evan Mobley": 33, "Bam Adebayo": 35, "Brandon Miller": 36, "Dyson Daniels": 37,
+        "Domantas Sabonis": 38, "Donovan Clingan": 39, "Jaren Jackson Jr.": 40, "Onyeka Okongwu": 42,
+        "Joel Embiid": 45, "Desmond Bane": 46, "Zach Edey": 47, "Jalen Brunson": 48,
+        "Jalen Duren": 49, "Josh Giddey": 50, "Devin Booker": 51, "Tyler Herro": 53,
+        "Jaden McDaniels": 54, "Alperen Sengun": 55, "Scoot Henderson": 56, "Michael Porter Jr.": 57,
+        "Brandon Ingram": 58, "Damian Lillard": 59, "Deni Avdija": 60, "Dereck Lively II": 61,
+        "Darius Garland": 62, "Dejounte Murray": 64, "OG Anunoby": 66, "Mikal Bridges": 67,
+        "Tyus Jones": 68, "Walker Kessler": 70, "Paul George": 72, "Ausar Thompson": 73,
+        "Jarrett Allen": 74, "Naz Reid": 75, "Kristaps Porzingis": 77, "LeBron James": 78,
+        "Immanuel Quickley": 79, "Ivica Zubac": 80, "Jalen Suggs": 81, "Keegan Murray": 83,
+        "Pascal Siakam": 85, "Josh Hart": 87, "Mark Williams": 88, "Rudy Gobert": 89,
+        "Jaylen Brown": 90, "Fred VanVleet": 91, "John Collins": 92, "Miles Bridges": 93,
+        "Jabari Smith Jr.": 94, "De'Aaron Fox": 97, "Paolo Banchero": 100, "Andrew Wiggins": 102,
+        "Myles Turner": 103, "Christian Braun": 105, "Collin Sexton": 106, "Julius Randle": 108,
+        "Ayo Dosunmu": 109, "Nic Claxton": 110, "Coby White": 111, "Zion Williamson": 112,
+        "Cameron Johnson": 113, "Cason Wallace": 114, "Jimmy Butler": 118, "Jaime Jaquez Jr.": 119,
+        "Isaiah Hartenstein": 120, "Isaiah Stewart": 121, "Paul Reed": 122, "Brandin Podziemski": 123,
+        "Day'Ron Sharpe": 124, "Devin Vassell": 125, "Norman Powell": 126
+    }
+    
+    # דריסת ה-ADP של האשטג עם הדירוג הישראלי של 9 פנטזי לטובת מנוע הארביטראז'
+    df_clean['ADP'] = df_clean['PLAYER'].map(nine_fantasy_ranks).fillna(df_clean['ADP'])
+
     def extract_shooting_stats(val):
         val = str(val).strip()
         if '(' in val and ')' in val:
             try:
                 pct_part = float(val.split('(')[0])
                 makes_atts = val.split('(')[1].replace(')', '').split('/')
-                makes = float(makes_atts[0])
-                atts = float(makes_atts[1])
-                return pct_part, makes, atts
-            except:
-                pass
+                return pct_part, float(makes_atts[0]), float(makes_atts[1])
+            except: pass
         return 0.0, 0.0, 0.0
 
     df_clean[['FG_Pct', 'FGM', 'FGA']] = df_clean['FG%'].apply(lambda x: pd.Series(extract_shooting_stats(x)))
     df_clean[['FT_Pct', 'FTM', 'FTA']] = df_clean['FT%'].apply(lambda x: pd.Series(extract_shooting_stats(x)))
     
     column_mapping = {
-        'ADP': 'Rank', 
-        'PLAYER': 'Full_Name', 
-        'TEAM': 'Team', 
-        'POS': 'Position', 
-        'GP': 'Games_Played', 
-        'MPG': 'MIN', 
-        'PTS': 'PTS', 
-        'TREB': 'REB', 
-        'AST': 'AST', 
-        'STL': 'STL', 
-        'BLK': 'BLK', 
-        '3PM': 'Three_PM', 
-        'FGM': 'FG_Made', 
-        'FGA': 'FG_Att', 
-        'FTM': 'FT_Made', 
-        'FTA': 'FT_Att', 
-        'TO': 'TOV'
+        'ADP': 'Rank', 'PLAYER': 'Full_Name', 'TEAM': 'Team', 'POS': 'Position', 
+        'GP': 'Games_Played', 'MPG': 'MIN', 'PTS': 'PTS', 'TREB': 'REB', 'AST': 'AST', 
+        'STL': 'STL', 'BLK': 'BLK', '3PM': 'Three_PM', 'FGM': 'FG_Made', 'FGA': 'FG_Att', 
+        'FTM': 'FT_Made', 'FTA': 'FT_Att', 'TO': 'TOV'
     }
     
     df_renamed = df_clean.rename(columns=column_mapping).fillna(0)
@@ -212,13 +224,11 @@ if st.sidebar.button("↩️ ביטול בחירה אחרונה (Undo)", use_con
         st.rerun()
 
 st.sidebar.divider()
-
 show_raw_stats = st.sidebar.toggle("🔢 הצג ממוצעים למשחק (Raw)", value=True, help="החלף בין תצוגת Z-Scores לתצוגת ממוצעים ריאליים. הצבעים עדיין משקפים את איכות ה-Z-Score האמיתית!")
-
 st.sidebar.divider()
 
 # --- AUTO-PIVOT ENGINE ---
-auto_pivot = st.sidebar.toggle("🤖 מנוע Auto-Pivot", value=False, help="יזהה אוטומטית את חולשות הקבוצה שלך לאחר 3 בחירות ויכפה אסטרטגיית פאנט אופטימלית")
+auto_pivot = st.sidebar.toggle("🤖 מנוע Auto-Pivot", value=False)
 w = {}
 punt_options = ["FG%", "FT%", "3PM", "REB", "AST", "STL", "BLK", "PTS", "TOV"]
 
@@ -241,14 +251,13 @@ if auto_pivot:
         mapping = {'zPTS':'pts', 'zREB':'reb', 'zAST':'ast', 'zSTL':'stl', 'zBLK':'blk', 'z3PM':'3pm', 'zTOV':'tov', 'zFG':'fg', 'zFT':'ft'}
         
         for k in ['pts','reb','ast','stl','blk','3pm','tov','fg','ft']: w[k] = 1.0
-        w[mapping[cats[0]]] = 0.0 # Hard punt
-        w[mapping[cats[1]]] = 0.0 # Hard punt
-        w[mapping[cats[2]]] = 0.5 # Soft punt
+        w[mapping[cats[0]]] = 0.0 
+        w[mapping[cats[1]]] = 0.0 
+        w[mapping[cats[2]]] = 0.5 
         
         auto_pivot_msg = f"<div style='background-color:#2d3748; padding:10px; border-radius:6px; font-size:12px; border-right:4px solid #ecc94b;'><b>הרובוט הפעיל פאנט:</b><br>מוחלט: {mapping[cats[0]].upper()}, {mapping[cats[1]].upper()}<br>חלקי: {mapping[cats[2]].upper()}</div>"
 
-if auto_pivot_active:
-    st.sidebar.markdown(auto_pivot_msg, unsafe_allow_html=True)
+if auto_pivot_active: st.sidebar.markdown(auto_pivot_msg, unsafe_allow_html=True)
 st.sidebar.markdown("<br><div style='font-size: 11px; color: #718096; margin-bottom: 10px;'>משקלים ידניים:</div>", unsafe_allow_html=True)
 
 for i in range(0, len(punt_options), 2):
@@ -291,7 +300,7 @@ next_my_pick = my_future_picks[0] if my_future_picks else st.session_state.globa
 
 # --- Main SQL & Data Engine ---
 st.markdown("<h1 style='color: #f7fafc; margin-bottom: 0;'>🏀 Fantasy NBA <span style='color: #4299e1;'>H2H</span> Draft Tool</h1>", unsafe_allow_html=True)
-st.markdown("<p style='color: #a0aec0; margin-bottom: 30px;'>Advanced 9-Cat Projections & Live Analytics Dashboard</p>", unsafe_allow_html=True)
+st.markdown("<p style='color: #a0aec0; margin-bottom: 30px;'>Advanced Yeo-Johnson Projections (DURANT H2H) & Live Analytics</p>", unsafe_allow_html=True)
 
 query = f'''
 WITH PlayerPool AS (
@@ -320,21 +329,53 @@ ZScores AS (
            pi.PTS, pi.REB, pi.AST, pi.STL, pi.BLK, pi.Three_PM, pi.TOV,
            IFNULL(pi.FG_Made / NULLIF(pi.FG_Att, 0), 0) as FG_Pct,
            IFNULL(pi.FT_Made / NULLIF(pi.FT_Att, 0), 0) as FT_Pct,
+           pi.fg_impact, pi.ft_impact,
            ((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0))*{w['pts']} + ((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0))*{w['reb']} + ((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0))*{w['ast']} + ((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0))*{w['stl']} + ((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0))*{w['blk']} + ((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0))*{w['3pm']} + (((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1)*{w['tov']} + ((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0))*{w['fg']} + ((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0))*{w['ft']} as Total_Value,
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS, ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB, ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST, ROUND(((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0)), 2) as zSTL, ROUND(((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0)), 2) as zBLK, ROUND(((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0)), 2) as z3PM, ROUND((((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1), 2) as zTOV, ROUND(((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0)), 2) as zFG, ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0)), 2) as zFT
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
 SELECT Player_ID, Player, Team, Position, Games_Played, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value, 
        PTS, REB, AST, STL, BLK, Three_PM, TOV, FG_Pct, FT_Pct,
-       zPTS, zREB, zAST, zSTL, zBLK, z3PM, zTOV, zFG, zFT 
+       zPTS, zREB, zAST, zSTL, zBLK, z3PM, zTOV, zFG, zFT,
+       fg_impact, ft_impact
 FROM ZScores;
 '''
 df_board = pd.read_sql(query, conn)
 df_board['PO_Games'] = df_board['Team'].str.strip().str.upper().map(playoff_games_map).fillna(11).astype(int)
 
-# --- חישוב DURANT ---
-z_columns = ['zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zTOV', 'zFG', 'zFT']
-df_board['Durant'] = (df_board[z_columns].sum(axis=1) - df_board[z_columns].min(axis=1)).round(2)
+# --- חישוב DURANT H2H מבוסס Yeo-Johnson ---
+target_cats = ['PTS', 'REB', 'AST', 'Three_PM', 'STL', 'BLK', 'fg_impact', 'ft_impact', 'TOV']
+
+try:
+    pt = PowerTransformer(method='yeo-johnson', standardize=True)
+    transformed_data = pt.fit_transform(df_board[target_cats])
+    
+    trans_cols = [f"yj_{cat}" for cat in target_cats]
+    df_trans = pd.DataFrame(transformed_data, columns=trans_cols, index=df_board.index)
+    df_trans['yj_TOV'] = df_trans['yj_TOV'] * -1.0
+    
+    # DURANT H2H Weights
+    h2h_weights = {
+        'yj_PTS': 1.00, 'yj_REB': 0.94, 'yj_AST': 0.75,
+        'yj_Three_PM': 0.60, 'yj_STL': 0.60, 'yj_BLK': 0.60,
+        'yj_fg_impact': 0.60, 'yj_ft_impact': 0.60
+    }
+    
+    h2h_weighted_cols = []
+    for col, weight in h2h_weights.items():
+        weighted_col_name = f"w_{col}"
+        df_trans[weighted_col_name] = df_trans[col] * weight
+        h2h_weighted_cols.append(weighted_col_name)
+    
+    # Minus 1 Protocol (הסרת הקטגוריה החלשה ביותר)
+    total_h2h_8cat = df_trans[h2h_weighted_cols].sum(axis=1)
+    min_h2h_cat = df_trans[h2h_weighted_cols].min(axis=1)
+    df_board['Durant_H2H'] = (total_h2h_8cat - min_h2h_cat).round(2)
+    
+except Exception as e:
+    # גיבוי במקרה שהספרייה חסרה או נכשלת
+    z_columns = ['zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zFG', 'zFT']
+    df_board['Durant_H2H'] = (df_board[z_columns].sum(axis=1) - df_board[z_columns].min(axis=1)).round(2)
 
 # --- מנוע ארביטראז' (ADP Arbitrage) ---
 df_board['Internal_Rank'] = df_board['Total_Value'].rank(ascending=False, method='min')
@@ -417,11 +458,11 @@ if num_my_players > 0:
 df_board['Total_Value'] = (df_board['Total_Value'] + ((df_board['PO_Games'] - 11) * 0.05)).round(2)
 
 # --- עמודות התצוגה המעודכנות ---
-col_widths = [0.4, 1.8, 0.5, 0.4, 0.4, 0.7, 0.4, 0.4, 0.5, 0.5, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
+col_widths = [0.4, 1.8, 0.5, 0.4, 0.4, 0.7, 0.4, 0.4, 0.5, 0.6, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("T", "Tier"), 
     ("ADP", "ADP"), ("פער שוק", "Arbitrage"), ("🏥", "Risk"), ("PO", "PO_Games"), 
-    ("Z", "Total_Value"), ("DUR", "Durant"), ("PTS", "zPTS"), ("REB", "zREB"), 
+    ("Z", "Total_Value"), ("DUR H2H", "Durant_H2H"), ("PTS", "zPTS"), ("REB", "zREB"), 
     ("AST", "zAST"), ("STL", "zSTL"), ("BLK", "zBLK"), ("3PM", "z3PM"), 
     ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)
 ]
@@ -437,7 +478,7 @@ def render_player_row(idx, row, is_wl=False):
     r_cols[6].markdown(f"<div class='small-font center-text' title='סיכון פציעה/מנוחות'>{row['Risk']}</div>", unsafe_allow_html=True) 
     r_cols[7].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
     r_cols[8].markdown(f"<div class='small-font center-text total-value'>{row['Total_Value']:.2f}</div>", unsafe_allow_html=True)
-    r_cols[9].markdown(f"<div class='small-font center-text durant-value' title='DURANT'>{row['Durant']:.2f}</div>", unsafe_allow_html=True)
+    r_cols[9].markdown(f"<div class='small-font center-text durant-value' title='DURANT H2H (Minus 1)'>{row['Durant_H2H']:.2f}</div>", unsafe_allow_html=True)
     
     r_cols[10].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['PTS'], row['zPTS'], show_raw_stats)}</div>", unsafe_allow_html=True)
     r_cols[11].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['REB'], row['zREB'], show_raw_stats)}</div>", unsafe_allow_html=True)
@@ -736,14 +777,12 @@ with shape_col3:
     ))
     
     if not df_sim_later.empty:
-        # --- תוספת חדשה: בחירת השחקן להשוואה על הגרף ---
         compare_match_name = st.selectbox("🔍 בחר שחקן מהרשימה להשוואה בגרף:", df_sim_later['Player'].tolist())
         
         best_match = df_shape[df_shape['Player'] == compare_match_name].iloc[0]
         best_match_percentiles = best_match[[f'p_{c}' for c in shape_cols]].values.flatten()
         best_match_text = [f"{int(x)}%" for x in best_match_percentiles]
         
-        # שליפת אחוז ההתאמה הספציפי עבור התווית
         match_pct = df_sim_later[df_sim_later['Player'] == compare_match_name].iloc[0]['Match']
         
         fig.add_trace(go.Scatterpolar(
