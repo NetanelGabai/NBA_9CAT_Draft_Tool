@@ -116,7 +116,7 @@ def setup_database():
     team_corrections = {'SA': 'SAS', 'GS': 'GSW', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHA': 'CHA', 'BKN': 'BKN'}
     df_clean['TEAM'] = df_clean['TEAM'].astype(str).str.strip().replace(team_corrections)
     
-    # קריאת ה-ADP הישיר מתוך הקובץ החדש
+    # קריאת ה-ADP הישיר מתוך הקובץ
     df_clean['ADP'] = pd.to_numeric(df_clean['ADP'], errors='coerce').fillna(999.0)
 
     def extract_shooting_stats(val):
@@ -262,13 +262,6 @@ if schedule_file is not None:
 
 if not playoff_games_map: playoff_games_map = {t: 11 for t in TEAM_NAME_TO_ABBR.values()}
 
-my_future_picks = []
-for r in range(1, 16):
-    p = (r - 1) * num_teams + st.session_state.my_draft_position if r % 2 != 0 else (r - 1) * num_teams + (num_teams - st.session_state.my_draft_position + 1)
-    if p >= st.session_state.global_pick:
-        my_future_picks.append(p)
-next_my_pick = my_future_picks[0] if my_future_picks else st.session_state.global_pick + 99
-
 # --- Main SQL & Data Engine ---
 st.markdown("<h1 style='color: #f7fafc; margin-bottom: 0;'>🏀 Fantasy NBA <span style='color: #4299e1;'>H2H</span> Draft Tool</h1>", unsafe_allow_html=True)
 st.markdown("<p style='color: #a0aec0; margin-bottom: 30px;'>Advanced Yeo-Johnson Projections (DURANT H2H) & Live Analytics</p>", unsafe_allow_html=True)
@@ -343,24 +336,9 @@ try:
     min_h2h_cat = df_trans[h2h_weighted_cols].min(axis=1)
     df_board['Durant_H2H'] = (total_h2h_8cat - min_h2h_cat).round(2)
     
-except Exception as e:
-    # גיבוי במקרה שהספרייה חסרה או נכשלת
+except Exception:
     z_columns = ['zPTS', 'zREB', 'zAST', 'zSTL', 'zBLK', 'z3PM', 'zFG', 'zFT']
     df_board['Durant_H2H'] = (df_board[z_columns].sum(axis=1) - df_board[z_columns].min(axis=1)).round(2)
-
-# --- מנוע ארביטראז' (ADP Arbitrage) ---
-df_board['Internal_Rank'] = df_board['Total_Value'].rank(ascending=False, method='min')
-df_board['Arbitrage'] = df_board['ADP'] - df_board['Internal_Rank']
-
-def get_arbitrage_badge(arb):
-    if pd.isna(arb): return "➖"
-    if arb >= 25: return f"🟢 +{int(arb)} (גניבה)"
-    elif arb <= -25: return f"🔴 {int(arb)} (מלכודת)"
-    elif arb > 5: return f"↗️ +{int(arb)}"
-    elif arb < -5: return f"↘️ {int(arb)}"
-    return "➖"
-
-df_board['Arb_Badge'] = df_board['Arbitrage'].apply(get_arbitrage_badge)
 
 # --- מודל Tiers ---
 df_board = df_board.sort_values(by='Total_Value', ascending=False)
@@ -381,14 +359,7 @@ def get_player_tier(row):
     return min(tiers) if tiers else 1
 df_board['Tier'] = df_board.apply(get_player_tier, axis=1)
 
-# --- Survive Prob & Risk ---
-def get_survive_status(adp):
-    buffer = adp - next_my_pick
-    if buffer >= 10: return "🟢"
-    elif buffer >= -2: return "🟡"
-    else: return "🔴"
-df_board['Survive'] = df_board['ADP'].apply(get_survive_status)
-
+# --- Risk ---
 def get_risk_status(gp):
     try:
         val = float(gp)
@@ -412,7 +383,7 @@ if num_my_players > 0:
         return -1.5 if min_count >= 4 else -0.5 if min_count == 3 else 0.0
     df_board['Total_Value'] += df_board['Position'].apply(apply_pos_penalty)
 
-    l_avg_check = pd.read_sql('SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV, SUM(FG_Made)/SUM(FG_Att) as lg_fg, SUM(FT_Made)/SUM(FT_Att) as lg_ft FROM Projections', conn).iloc[0]
+    l_avg_check = pd.read_sql('SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV, SUM(FG_Made)/SUM(FG_Att) as lg_fg, SUM(FT_Made)/SUM(FT_Att) as lg_ft FROM Projections WHERE MIN > 15 AND Games_Played > 10', conn).iloc[0]
     cat_to_z = {'PTS': 'zPTS', 'REB': 'zREB', 'AST': 'zAST', 'STL': 'zSTL', 'BLK': 'zBLK', 'Three_PM': 'z3PM', 'TOV': 'zTOV'}
     cat_to_w_key = {'PTS': 'pts', 'REB': 'reb', 'AST': 'ast', 'STL': 'stl', 'BLK': 'blk', 'Three_PM': '3pm', 'TOV': 'tov'}
     boost_series = pd.Series(0.0, index=df_board.index)
@@ -428,11 +399,11 @@ if num_my_players > 0:
 
 df_board['Total_Value'] = (df_board['Total_Value'] + ((df_board['PO_Games'] - 11) * 0.05)).round(2)
 
-# --- עמודות התצוגה המעודכנות ---
-col_widths = [0.4, 1.8, 0.5, 0.4, 0.4, 0.7, 0.4, 0.4, 0.5, 0.6, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
+# --- עמודות התצוגה המעודכנות (ללא פער שוק) ---
+col_widths = [0.4, 2.0, 0.55, 0.4, 0.45, 0.4, 0.4, 0.55, 0.75, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 0.45, 1.2]
 headers_map = [
     ("#", None), ("שחקן", "Player"), ("POS", "Position"), ("T", "Tier"), 
-    ("ADP", "ADP"), ("פער שוק", "Arbitrage"), ("🏥", "Risk"), ("PO", "PO_Games"), 
+    ("ADP", "ADP"), ("🏥", "Risk"), ("PO", "PO_Games"), 
     ("Z", "Total_Value"), ("DUR H2H", "Durant_H2H"), ("PTS", "zPTS"), ("REB", "zREB"), 
     ("AST", "zAST"), ("STL", "zSTL"), ("BLK", "zBLK"), ("3PM", "z3PM"), 
     ("TOV", "zTOV"), ("FG", "zFG"), ("FT", "zFT"), ("פעולה", None)
@@ -445,23 +416,22 @@ def render_player_row(idx, row, is_wl=False):
     r_cols[2].markdown(f"<div class='small-font center-text'>{row['Position']}</div>", unsafe_allow_html=True)
     r_cols[3].markdown(f"<div class='small-font center-text' title='מדרגת איכות'><span class='tier-badge'>T{row['Tier']}</span></div>", unsafe_allow_html=True)
     r_cols[4].markdown(f"<div class='small-font center-text'>{row['ADP']:.1f}</div>", unsafe_allow_html=True)
-    r_cols[5].markdown(f"<div class='small-font center-text' title='פער בין ה-ADP לערך האמיתי עבורך'>{row['Arb_Badge']}</div>", unsafe_allow_html=True) 
-    r_cols[6].markdown(f"<div class='small-font center-text' title='סיכון פציעה/מנוחות'>{row['Risk']}</div>", unsafe_allow_html=True) 
-    r_cols[7].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
-    r_cols[8].markdown(f"<div class='small-font center-text total-value'>{row['Total_Value']:.2f}</div>", unsafe_allow_html=True)
-    r_cols[9].markdown(f"<div class='small-font center-text durant-value' title='DURANT H2H (Minus 1)'>{row['Durant_H2H']:.2f}</div>", unsafe_allow_html=True)
+    r_cols[5].markdown(f"<div class='small-font center-text' title='סיכון פציעה/מנוחות'>{row['Risk']}</div>", unsafe_allow_html=True) 
+    r_cols[6].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
+    r_cols[7].markdown(f"<div class='small-font center-text total-value'>{row['Total_Value']:.2f}</div>", unsafe_allow_html=True)
+    r_cols[8].markdown(f"<div class='small-font center-text durant-value' title='DURANT H2H (Minus 1)'>{row['Durant_H2H']:.2f}</div>", unsafe_allow_html=True)
     
-    r_cols[10].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['PTS'], row['zPTS'], show_raw_stats)}</div>", unsafe_allow_html=True)
-    r_cols[11].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['REB'], row['zREB'], show_raw_stats)}</div>", unsafe_allow_html=True)
-    r_cols[12].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['AST'], row['zAST'], show_raw_stats)}</div>", unsafe_allow_html=True)
-    r_cols[13].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['STL'], row['zSTL'], show_raw_stats)}</div>", unsafe_allow_html=True)
-    r_cols[14].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['BLK'], row['zBLK'], show_raw_stats)}</div>", unsafe_allow_html=True)
-    r_cols[15].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['Three_PM'], row['z3PM'], show_raw_stats)}</div>", unsafe_allow_html=True)
-    r_cols[16].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['TOV'], row['zTOV'], show_raw_stats)}</div>", unsafe_allow_html=True) 
-    r_cols[17].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['FG_Pct'], row['zFG'], show_raw_stats, is_pct=True)}</div>", unsafe_allow_html=True)
-    r_cols[18].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['FT_Pct'], row['zFT'], show_raw_stats, is_pct=True)}</div>", unsafe_allow_html=True)
+    r_cols[9].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['PTS'], row['zPTS'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[10].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['REB'], row['zREB'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[11].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['AST'], row['zAST'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[12].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['STL'], row['zSTL'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[13].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['BLK'], row['zBLK'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[14].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['Three_PM'], row['z3PM'], show_raw_stats)}</div>", unsafe_allow_html=True)
+    r_cols[15].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['TOV'], row['zTOV'], show_raw_stats)}</div>", unsafe_allow_html=True) 
+    r_cols[16].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['FG_Pct'], row['zFG'], show_raw_stats, is_pct=True)}</div>", unsafe_allow_html=True)
+    r_cols[17].markdown(f"<div class='small-font center-text'>{format_stat_cell(row['FT_Pct'], row['zFT'], show_raw_stats, is_pct=True)}</div>", unsafe_allow_html=True)
     
-    with r_cols[19]:
+    with r_cols[18]:
         c1, c2 = st.columns([1, 1.5])
         is_starred = row['Player_ID'] in st.session_state.watchlist
         star_icon = "⭐" if is_starred else "☆"
@@ -530,29 +500,86 @@ dash_left, dash_right = st.columns([5, 6])
 with dash_left:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("#### 🧠 הצרכים של הקבוצה שלי (Team Fit)")
-    my_team = pd.read_sql("SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = 'My Team'", conn).iloc[0]
-    l_avg = pd.read_sql("SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV FROM Projections", conn).iloc[0]
     
-    needs_html = "<div class='dash-card' style='display:flex; justify-content:space-between;'>"
-    cats = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'Three_PM', 'TOV']
-    for cat in cats:
-        if len(my_team_roster_check) > 0:
-            val = my_team[cat]
-            diff = val - (l_avg[cat] * len(my_team_roster_check))
-            is_inverse = (cat == 'TOV')
+    # שליפת סכומי הקבוצה כולל זריקות וקליעות לחישוב ממוצע משוקלל אמיתי
+    my_team = pd.read_sql("""
+        SELECT SUM(PTS) as PTS, SUM(REB) as REB, SUM(AST) as AST, 
+               SUM(STL) as STL, SUM(BLK) as BLK, SUM(Three_PM) as Three_PM, SUM(TOV) as TOV,
+               SUM(FG_Made) as FGM, SUM(FG_Att) as FGA,
+               SUM(FT_Made) as FTM, SUM(FT_Att) as FTA
+        FROM Draft_State ds 
+        JOIN Projections pr ON ds.Player_ID = pr.Player_ID 
+        WHERE ds.Fantasy_Team = 'My Team'
+    """, conn).iloc[0]
+    
+    l_avg = pd.read_sql("""
+        SELECT AVG(PTS) as PTS, AVG(REB) as REB, AVG(AST) as AST, 
+               AVG(STL) as STL, AVG(BLK) as BLK, AVG(Three_PM) as Three_PM, AVG(TOV) as TOV,
+               SUM(FG_Made) / NULLIF(SUM(FG_Att), 0) as lg_fg_pct,
+               SUM(FT_Made) / NULLIF(SUM(FT_Att), 0) as lg_ft_pct
+        FROM Projections
+        WHERE MIN > 15 AND Games_Played > 10
+    """, conn).iloc[0]
+    
+    needs_html = "<div class='dash-card' style='display:flex; justify-content:space-between; align-items:center;'>"
+    
+    # 1. שבע קטגוריות כמותיות
+    counting_cats = [
+        ('PTS', 'PTS'), ('REB', 'REB'), ('AST', 'AST'), 
+        ('STL', 'STL'), ('BLK', 'BLK'), ('Three_PM', '3PM'), ('TOV', 'TOV')
+    ]
+    for db_col, disp_label in counting_cats:
+        if len(my_team_roster_check) > 0 and pd.notna(my_team[db_col]):
+            val = float(my_team[db_col])
+            diff = val - (float(l_avg[db_col]) * len(my_team_roster_check))
+            is_inverse = (db_col == 'TOV')
             is_positive = (diff < 0) if is_inverse else (diff > 0)
             color = "#48bb78" if is_positive else "#f56565"
             sign = "+" if diff > 0 else ""
         else:
             val, diff, color, sign = 0.0, 0.0, "#a0aec0", ""
             
-        needs_html += f"<div style='text-align:center;'><div style='font-size:11px; color:#a0aec0; margin-bottom:5px;'>{cat}</div><div style='font-size:18px; font-weight:bold; color:#ffffff;'>{val:.1f}</div><div style='font-size:11px; font-weight:bold; color:{color}; margin-top:3px;'>{sign}{diff:.1f}</div></div>"
+        needs_html += f"<div style='text-align:center;'><div style='font-size:11px; color:#a0aec0; margin-bottom:5px;'>{disp_label}</div><div style='font-size:17px; font-weight:bold; color:#ffffff;'>{val:.1f}</div><div style='font-size:11px; font-weight:bold; color:{color}; margin-top:3px;'>{sign}{diff:.1f}</div></div>"
+    
+    # 2. שתי קטגוריות אחוזים משוקללות לפי ווליום זריקות (FG% ו-FT%)
+    pct_cats = [
+        ('FG%', 'FGM', 'FGA', 'lg_fg_pct'),
+        ('FT%', 'FTM', 'FTA', 'lg_ft_pct')
+    ]
+    for label, m_col, a_col, lg_col in pct_cats:
+        if len(my_team_roster_check) > 0 and pd.notna(my_team[a_col]) and float(my_team[a_col]) > 0:
+            makes = float(my_team[m_col])
+            atts = float(my_team[a_col])
+            val_pct = (makes / atts) * 100.0
+            lg_pct = float(l_avg[lg_col]) * 100.0
+            diff_pct = val_pct - lg_pct
+            color = "#48bb78" if diff_pct >= 0 else "#f56565"
+            sign = "+" if diff_pct > 0 else ""
+            vol_tooltip = f"ווליום קבוצתי משוקלל: {makes:.1f} קליעות מתוך {atts:.1f} זריקות למשחק (ממוצע ליגה: {lg_pct:.1f}%)"
+            val_str = f"{val_pct:.1f}%"
+            diff_str = f"{sign}{diff_pct:.1f}%"
+        else:
+            val_str, diff_str, color = "0.0%", "0.0%", "#a0aec0"
+            vol_tooltip = "אין זריקות בסגל"
+            
+        needs_html += f"<div style='text-align:center; cursor:help;' title='{vol_tooltip}'><div style='font-size:11px; color:#ecc94b; font-weight:bold; margin-bottom:5px;'>{label}</div><div style='font-size:17px; font-weight:bold; color:#ffffff;'>{val_str}</div><div style='font-size:11px; font-weight:bold; color:{color}; margin-top:3px;'>{diff_str}</div></div>"
+
     needs_html += "</div>"
     st.markdown(needs_html, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("#### 🟢 הקבוצה שלי")
-    my_team_roster = pd.read_sql('SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, pr.PTS, pr.AST, pr.REB FROM Draft_State ds JOIN Players p ON ds.Player_ID = p.Player_ID JOIN Projections pr ON p.Player_ID = pr.Player_ID WHERE ds.Fantasy_Team = "My Team" ORDER BY ds.Pick_Number', conn)
+    my_team_roster = pd.read_sql('''
+        SELECT ds.Pick_Number as Pick, p.Full_Name as Player, p.Team, p.Position, 
+               pr.PTS, pr.REB, pr.AST, 
+               ROUND(IFNULL(pr.FG_Made * 100.0 / NULLIF(pr.FG_Att, 0), 0), 1) as "FG%",
+               ROUND(IFNULL(pr.FT_Made * 100.0 / NULLIF(pr.FT_Att, 0), 0), 1) as "FT%"
+        FROM Draft_State ds 
+        JOIN Players p ON ds.Player_ID = p.Player_ID 
+        JOIN Projections pr ON p.Player_ID = pr.Player_ID 
+        WHERE ds.Fantasy_Team = "My Team" 
+        ORDER BY ds.Pick_Number
+    ''', conn)
     if not my_team_roster.empty:
         st.dataframe(my_team_roster, use_container_width=True, hide_index=True)
         
@@ -595,7 +622,9 @@ with dash_right:
         SELECT ds.Fantasy_Team as "Team", COUNT(ds.Player_ID) as "Plyrs",
                ROUND(SUM(pr.PTS), 1) as PTS, ROUND(SUM(pr.REB), 1) as REB, ROUND(SUM(pr.AST), 1) as AST, 
                ROUND(SUM(pr.STL), 1) as STL, ROUND(SUM(pr.BLK), 1) as BLK, ROUND(SUM(pr.Three_PM), 1) as "3PM", 
-               ROUND(SUM(pr.TOV), 1) as TOV
+               ROUND(SUM(pr.TOV), 1) as TOV,
+               ROUND(IFNULL(SUM(pr.FG_Made) * 100.0 / NULLIF(SUM(pr.FG_Att), 0), 0), 1) as "FG%",
+               ROUND(IFNULL(SUM(pr.FT_Made) * 100.0 / NULLIF(SUM(pr.FT_Att), 0), 0), 1) as "FT%"
         FROM Draft_State ds JOIN Projections pr ON ds.Player_ID = pr.Player_ID GROUP BY ds.Fantasy_Team
     '''
     df_teams_actual = pd.read_sql(team_totals_query, conn)
@@ -607,7 +636,7 @@ with dash_right:
         df_h2h = pd.merge(base_teams_df, df_teams_actual, on="Team", how="left").fillna(0)
     else:
         df_h2h = base_teams_df.copy()
-        for cat in ["Plyrs", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TOV"]:
+        for cat in ["Plyrs", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TOV", "FG%", "FT%"]:
             df_h2h[cat] = 0
             
     df_h2h['Plyrs'] = df_h2h['Plyrs'].astype(int)
