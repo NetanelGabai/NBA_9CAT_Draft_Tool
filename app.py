@@ -111,42 +111,13 @@ def setup_database():
 
     df_clean = df_raw.drop_duplicates(subset=['PLAYER'], keep='first').copy()
     
+    # נרמול עמדות ושמות קבוצות
     df_clean['POS'] = df_clean['POS'].astype(str).str.replace('/', ',').str.replace('-', ',')
     team_corrections = {'SA': 'SAS', 'GS': 'GSW', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHA': 'CHA', 'BKN': 'BKN'}
     df_clean['TEAM'] = df_clean['TEAM'].astype(str).str.strip().replace(team_corrections)
     
-    # --- הזרקת הדירוג של 9 פנטזי (ADP Arbitrage Engine) ---
-    nine_fantasy_ranks = {
-        "Nikola Jokic": 1, "Victor Wembanyama": 2, "Shai Gilgeous-Alexander": 3, "Luka Doncic": 4,
-        "Tyrese Maxey": 5, "Jayson Tatum": 6, "Tyrese Haliburton": 7, "Kawhi Leonard": 8,
-        "Cade Cunningham": 9, "Cooper Flagg": 10, "Jalen Johnson": 11, "Anthony Edwards": 12,
-        "Scottie Barnes": 13, "Jamal Murray": 14, "Donovan Mitchell": 15, "Chet Holmgren": 16,
-        "Anthony Davis": 17, "Karl-Anthony Towns": 18, "Giannis Antetokounmpo": 19, "LaMelo Ball": 20,
-        "Trey Murphy III": 21, "Stephen Curry": 22, "Austin Reaves": 23, "Lauri Markkanen": 24,
-        "James Harden": 25, "Kevin Durant": 26, "Derrick White": 27, "Jalen Williams": 28,
-        "Trae Young": 29, "Amen Thompson": 30, "Franz Wagner": 31, "Kyrie Irving": 32,
-        "Evan Mobley": 33, "Bam Adebayo": 35, "Brandon Miller": 36, "Dyson Daniels": 37,
-        "Domantas Sabonis": 38, "Donovan Clingan": 39, "Jaren Jackson Jr.": 40, "Onyeka Okongwu": 42,
-        "Joel Embiid": 45, "Desmond Bane": 46, "Zach Edey": 47, "Jalen Brunson": 48,
-        "Jalen Duren": 49, "Josh Giddey": 50, "Devin Booker": 51, "Tyler Herro": 53,
-        "Jaden McDaniels": 54, "Alperen Sengun": 55, "Scoot Henderson": 56, "Michael Porter Jr.": 57,
-        "Brandon Ingram": 58, "Damian Lillard": 59, "Deni Avdija": 60, "Dereck Lively II": 61,
-        "Darius Garland": 62, "Dejounte Murray": 64, "OG Anunoby": 66, "Mikal Bridges": 67,
-        "Tyus Jones": 68, "Walker Kessler": 70, "Paul George": 72, "Ausar Thompson": 73,
-        "Jarrett Allen": 74, "Naz Reid": 75, "Kristaps Porzingis": 77, "LeBron James": 78,
-        "Immanuel Quickley": 79, "Ivica Zubac": 80, "Jalen Suggs": 81, "Keegan Murray": 83,
-        "Pascal Siakam": 85, "Josh Hart": 87, "Mark Williams": 88, "Rudy Gobert": 89,
-        "Jaylen Brown": 90, "Fred VanVleet": 91, "John Collins": 92, "Miles Bridges": 93,
-        "Jabari Smith Jr.": 94, "De'Aaron Fox": 97, "Paolo Banchero": 100, "Andrew Wiggins": 102,
-        "Myles Turner": 103, "Christian Braun": 105, "Collin Sexton": 106, "Julius Randle": 108,
-        "Ayo Dosunmu": 109, "Nic Claxton": 110, "Coby White": 111, "Zion Williamson": 112,
-        "Cameron Johnson": 113, "Cason Wallace": 114, "Jimmy Butler": 118, "Jaime Jaquez Jr.": 119,
-        "Isaiah Hartenstein": 120, "Isaiah Stewart": 121, "Paul Reed": 122, "Brandin Podziemski": 123,
-        "Day'Ron Sharpe": 124, "Devin Vassell": 125, "Norman Powell": 126
-    }
-    
-    # דריסת ה-ADP של האשטג עם הדירוג הישראלי של 9 פנטזי לטובת מנוע הארביטראז'
-    df_clean['ADP'] = df_clean['PLAYER'].map(nine_fantasy_ranks).fillna(df_clean['ADP'])
+    # קריאת ה-ADP הישיר מתוך הקובץ החדש
+    df_clean['ADP'] = pd.to_numeric(df_clean['ADP'], errors='coerce').fillna(999.0)
 
     def extract_shooting_stats(val):
         val = str(val).strip()
@@ -334,7 +305,7 @@ ZScores AS (
            ROUND(((pi.PTS - la.avg_pts)/NULLIF(ld.std_pts,0)), 2) as zPTS, ROUND(((pi.REB - la.avg_reb)/NULLIF(ld.std_reb,0)), 2) as zREB, ROUND(((pi.AST - la.avg_ast)/NULLIF(ld.std_ast,0)), 2) as zAST, ROUND(((pi.STL - la.avg_stl)/NULLIF(ld.std_stl,0)), 2) as zSTL, ROUND(((pi.BLK - la.avg_blk)/NULLIF(ld.std_blk,0)), 2) as zBLK, ROUND(((pi.Three_PM - la.avg_3pm)/NULLIF(ld.std_3pm,0)), 2) as z3PM, ROUND((((pi.TOV - la.avg_tov)/NULLIF(ld.std_tov,0))*-1), 2) as zTOV, ROUND(((pi.fg_impact - lis.avg_fg_imp)/NULLIF(ld.std_fg,0)), 2) as zFG, ROUND(((pi.ft_impact - lis.avg_ft_imp)/NULLIF(ld.std_ft,0)), 2) as zFT
     FROM PlayerImpact pi CROSS JOIN LeagueAvg la CROSS JOIN LeagueImpactStats lis CROSS JOIN LeagueDeviations ld
 )
-SELECT Player_ID, Player, Team, Position, Games_Played, ROUND(ADP, 0) as ADP, ROUND(Total_Value, 2) as Total_Value, 
+SELECT Player_ID, Player, Team, Position, Games_Played, ROUND(ADP, 1) as ADP, ROUND(Total_Value, 2) as Total_Value, 
        PTS, REB, AST, STL, BLK, Three_PM, TOV, FG_Pct, FT_Pct,
        zPTS, zREB, zAST, zSTL, zBLK, z3PM, zTOV, zFG, zFT,
        fg_impact, ft_impact
@@ -473,8 +444,8 @@ def render_player_row(idx, row, is_wl=False):
     r_cols[1].markdown(f"<div class='small-font left-text'><span class='player-name'>{row['Player']}</span><span class='player-meta'>({row['Team']})</span></div>", unsafe_allow_html=True)
     r_cols[2].markdown(f"<div class='small-font center-text'>{row['Position']}</div>", unsafe_allow_html=True)
     r_cols[3].markdown(f"<div class='small-font center-text' title='מדרגת איכות'><span class='tier-badge'>T{row['Tier']}</span></div>", unsafe_allow_html=True)
-    r_cols[4].markdown(f"<div class='small-font center-text'>{int(row['ADP'])}</div>", unsafe_allow_html=True)
-    r_cols[5].markdown(f"<div class='small-font center-text' title='פער בין דירוג הפלטפורמה לערך האמיתי עבורך'>{row['Arb_Badge']}</div>", unsafe_allow_html=True) 
+    r_cols[4].markdown(f"<div class='small-font center-text'>{row['ADP']:.1f}</div>", unsafe_allow_html=True)
+    r_cols[5].markdown(f"<div class='small-font center-text' title='פער בין ה-ADP לערך האמיתי עבורך'>{row['Arb_Badge']}</div>", unsafe_allow_html=True) 
     r_cols[6].markdown(f"<div class='small-font center-text' title='סיכון פציעה/מנוחות'>{row['Risk']}</div>", unsafe_allow_html=True) 
     r_cols[7].markdown(f"<div class='small-font center-text'>{int(row['PO_Games'])}</div>", unsafe_allow_html=True)
     r_cols[8].markdown(f"<div class='small-font center-text total-value'>{row['Total_Value']:.2f}</div>", unsafe_allow_html=True)
@@ -746,7 +717,7 @@ with shape_col1:
         <div style='background-color: #1a202c; padding: 10px; border-radius: 6px; margin-bottom: 8px; border-left: 4px solid #ecc94b; display: flex; justify-content: space-between;'>
             <div>
                 <span style='font-weight: bold; color: #ffffff;'>{match['Player']}</span><br>
-                <span style='font-size: 11px; color: #a0aec0;'>{match['Position']} | ADP: {int(match['ADP'])}</span>
+                <span style='font-size: 11px; color: #a0aec0;'>{match['Position']} | ADP: {match['ADP']:.1f}</span>
             </div>
             <div style='font-size: 18px; font-weight: bold; color: #48bb78; line-height: 2;'>
                 {match['Match']:.1f}%
